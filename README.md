@@ -111,8 +111,6 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
-Adding a language = one JSON file in `src/patterns/`.
-
 ## License
 
 MIT
