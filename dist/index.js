@@ -36064,27 +36064,17 @@ async function postComment(token, body) {
 /***/ }),
 
 /***/ 2074:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+/***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
 
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.generateSummaryLine = generateSummaryLine;
 exports.generateDiagram = generateDiagram;
-const sdk_1 = __importDefault(__nccwpck_require__(121));
 function sanitize(name) {
     return name.replace(/[(){}[\]<>"]/g, "").trim();
 }
-function createClient(apiKey, baseUrl) {
-    const opts = { apiKey };
-    if (baseUrl)
-        opts.baseURL = baseUrl;
-    return new sdk_1.default(opts);
-}
-async function generateSummaryLine(apiKey, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved, baseUrl) {
+async function generateSummaryLine(llm, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved) {
     const nonTestSymbols = allSymbols.filter((s) => !/^(Test|Benchmark|test_|describe|it\()/i.test(s.name));
     const added = nonTestSymbols
         .filter((s) => s.change === "added")
@@ -36094,27 +36084,16 @@ async function generateSummaryLine(apiKey, fileSummaries, allSymbols, filesChang
         .filter((f) => !f.isTest)
         .map((f) => f.file.split("/").pop())
         .join(", ");
-    const client = createClient(apiKey, baseUrl);
-    const response = await client.messages.create({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 100,
-        messages: [
-            {
-                role: "user",
-                content: `Summarize this pull request in ONE short sentence (max 15 words). Be specific about what changed, not generic. No filler words.
+    const text = await llm.generate(`Summarize this pull request in ONE short sentence (max 15 words). Be specific about what changed, not generic. No filler words.
 
 Files: ${files}
 Key symbols added: ${added.join(", ")}
 ${filesChanged} files, +${linesAdded}/-${linesRemoved}
 
-Output ONLY the sentence, nothing else.`,
-            },
-        ],
-    });
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
+Output ONLY the sentence, nothing else.`, 100);
     return text.trim();
 }
-async function generateDiagram(apiKey, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved, baseUrl) {
+async function generateDiagram(llm, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved) {
     const relevantFiles = fileSummaries.filter((f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 20));
     if (relevantFiles.length === 0) {
         return null;
@@ -36146,14 +36125,7 @@ async function generateDiagram(apiKey, fileSummaries, allSymbols, filesChanged, 
             key_symbols: keySymbols,
         };
     });
-    const client = createClient(apiKey, baseUrl);
-    const response = await client.messages.create({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 2048,
-        messages: [
-            {
-                role: "user",
-                content: `Generate a Mermaid diagram for a pull request code review.
+    const text = await llm.generate(`Generate a Mermaid diagram for a pull request code review.
 
 STRUCTURE — two types of nodes:
 1. FILE NODES — one per file, labeled with just "filename +N/-N"
@@ -36186,14 +36158,12 @@ CRITICAL SYNTAX RULES:
 - Keep file node labels short: just filename and +N/-N
 - Dotted arrows from risk to file: r1 -.-> A
 
-Files and their data:
+PR summary: ${filesChanged} files changed, +${linesAdded}/-${linesRemoved}
+
+Files and their symbols:
 ${JSON.stringify(payload, null, 2)}
 
-Output ONLY the mermaid code. No explanation.`,
-            },
-        ],
-    });
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
+Output ONLY the mermaid code. No explanation.`, 2048);
     const mermaidMatch = text.match(/```(?:mermaid)?\s*\n([\s\S]*?)```/);
     if (mermaidMatch) {
         return mermaidMatch[1].trim();
@@ -36488,6 +36458,7 @@ const extract_1 = __nccwpck_require__(6542);
 const classify_1 = __nccwpck_require__(3813);
 const diagram_1 = __nccwpck_require__(2074);
 const comment_1 = __nccwpck_require__(2246);
+const llm_1 = __nccwpck_require__(1908);
 async function resolveBaseRef(token) {
     const explicit = core.getInput("base_ref");
     if (explicit)
@@ -36510,14 +36481,20 @@ async function run() {
     try {
         const token = core.getInput("github_token", { required: true });
         const anthropicKey = core.getInput("anthropic_api_key");
-        const apiBaseUrl = core.getInput("api_base_url") || undefined;
+        const openaiKey = core.getInput("openai_api_key");
+        const openrouterKey = core.getInput("openrouter_api_key");
+        const modelOverride = core.getInput("model");
         const languageFilter = core.getInput("languages") || "auto";
         const diagramEnabled = core.getInput("diagram") !== "false";
         const minLines = parseInt(core.getInput("min_lines") || "50", 10);
+        const llmConfig = (0, llm_1.resolveLLMConfig)(anthropicKey, openaiKey, openrouterKey, modelOverride);
         const baseRef = await resolveBaseRef(token);
         core.info(`Base ref: ${baseRef}`);
         core.info(`Languages: ${languageFilter}`);
         core.info(`Diagram: ${diagramEnabled}`);
+        if (llmConfig) {
+            core.info(`LLM provider: ${llmConfig.provider} (model: ${llmConfig.model})`);
+        }
         core.info("Extracting diff...");
         const extraction = await (0, extract_1.extract)(baseRef, languageFilter);
         core.info(`Found ${extraction.changedFiles.length} changed files, +${extraction.linesAdded}/-${extraction.linesRemoved}`);
@@ -36546,12 +36523,13 @@ async function run() {
         core.info(`Found ${extraction.symbols.length} symbol changes`);
         let diagram = null;
         let summaryLine = "";
-        if (diagramEnabled && anthropicKey) {
+        if (diagramEnabled && llmConfig) {
+            const llm = (0, llm_1.createProvider)(llmConfig);
             core.info("Generating summary and diagram...");
             try {
                 [summaryLine, diagram] = await Promise.all([
-                    (0, diagram_1.generateSummaryLine)(anthropicKey, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, apiBaseUrl),
-                    (0, diagram_1.generateDiagram)(anthropicKey, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, apiBaseUrl),
+                    (0, diagram_1.generateSummaryLine)(llm, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved),
+                    (0, diagram_1.generateDiagram)(llm, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved),
                 ]);
                 core.info(`Summary: ${summaryLine}`);
                 if (diagram) {
@@ -36565,8 +36543,8 @@ async function run() {
                 core.warning(`Generation failed: ${err}`);
             }
         }
-        else if (diagramEnabled && !anthropicKey) {
-            core.warning("Diagram enabled but no anthropic_api_key provided. Skipping diagram.");
+        else if (diagramEnabled && !llmConfig) {
+            core.warning("Diagram enabled but no API key provided. Pass anthropic_api_key, openai_api_key, or openrouter_api_key.");
         }
         const prNumber = github.context.payload.pull_request?.number
             ?? github.context.payload.issue?.number;
@@ -36590,6 +36568,110 @@ async function run() {
     }
 }
 run();
+
+
+/***/ }),
+
+/***/ 1908:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.resolveLLMConfig = resolveLLMConfig;
+exports.createProvider = createProvider;
+const sdk_1 = __importDefault(__nccwpck_require__(121));
+const DEFAULT_MODELS = {
+    anthropic: "claude-sonnet-4-20250514",
+    openai: "gpt-4o",
+    openrouter: "anthropic/claude-sonnet-4-20250514",
+};
+function resolveLLMConfig(anthropicKey, openaiKey, openrouterKey, modelOverride) {
+    if (anthropicKey) {
+        return {
+            provider: "anthropic",
+            apiKey: anthropicKey,
+            model: modelOverride || DEFAULT_MODELS.anthropic,
+        };
+    }
+    if (openaiKey) {
+        return {
+            provider: "openai",
+            apiKey: openaiKey,
+            model: modelOverride || DEFAULT_MODELS.openai,
+        };
+    }
+    if (openrouterKey) {
+        return {
+            provider: "openrouter",
+            apiKey: openrouterKey,
+            model: modelOverride || DEFAULT_MODELS.openrouter,
+        };
+    }
+    return null;
+}
+class AnthropicProvider {
+    client;
+    model;
+    constructor(apiKey, model, baseUrl) {
+        const opts = { apiKey };
+        if (baseUrl)
+            opts.baseURL = baseUrl;
+        this.client = new sdk_1.default(opts);
+        this.model = model;
+    }
+    async generate(prompt, maxTokens) {
+        const response = await this.client.messages.create({
+            model: this.model,
+            max_tokens: maxTokens,
+            messages: [{ role: "user", content: prompt }],
+        });
+        return response.content[0].type === "text" ? response.content[0].text : "";
+    }
+}
+class OpenAIProvider {
+    apiKey;
+    model;
+    baseUrl;
+    constructor(apiKey, model, baseUrl) {
+        this.apiKey = apiKey;
+        this.model = model;
+        this.baseUrl = baseUrl;
+    }
+    async generate(prompt, maxTokens) {
+        const response = await fetch(`${this.baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${this.apiKey}`,
+            },
+            body: JSON.stringify({
+                model: this.model,
+                max_tokens: maxTokens,
+                messages: [{ role: "user", content: prompt }],
+            }),
+        });
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`${response.status} ${err}`);
+        }
+        const data = (await response.json());
+        return data.choices?.[0]?.message?.content || "";
+    }
+}
+function createProvider(config) {
+    switch (config.provider) {
+        case "anthropic":
+            return new AnthropicProvider(config.apiKey, config.model);
+        case "openai":
+            return new OpenAIProvider(config.apiKey, config.model, "https://api.openai.com/v1");
+        case "openrouter":
+            return new AnthropicProvider(config.apiKey, config.model, "https://openrouter.ai/api/v1");
+    }
+}
 
 
 /***/ }),

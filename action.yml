@@ -11,10 +11,16 @@ inputs:
     description: "GitHub token for posting PR comments"
     required: true
   anthropic_api_key:
-    description: "API key for diagram generation (Anthropic or OpenRouter)"
+    description: "Anthropic API key"
     required: false
-  api_base_url:
-    description: "API base URL (default: Anthropic. Use https://openrouter.ai/api/v1 for OpenRouter)"
+  openai_api_key:
+    description: "OpenAI API key"
+    required: false
+  openrouter_api_key:
+    description: "OpenRouter API key"
+    required: false
+  model:
+    description: "Model override (defaults: claude-sonnet-4-20250514 for Anthropic, gpt-4o for OpenAI, anthropic/claude-sonnet-4-20250514 for OpenRouter)"
     required: false
   base_ref:
     description: "Base ref to diff against (defaults to PR base)"

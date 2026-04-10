@@ -7,6 +7,7 @@ import { extract, LanguagePattern } from "./extract";
 import { classify } from "./classify";
 import { generateDiagram, generateSummaryLine } from "./diagram";
 import { composeComment, postComment } from "./comment";
+import { resolveLLMConfig, createProvider } from "./llm";
 
 async function resolveBaseRef(token: string): Promise<string> {
   const explicit = core.getInput("base_ref");
@@ -34,16 +35,23 @@ async function run(): Promise<void> {
   try {
     const token = core.getInput("github_token", { required: true });
     const anthropicKey = core.getInput("anthropic_api_key");
-    const apiBaseUrl = core.getInput("api_base_url") || undefined;
+    const openaiKey = core.getInput("openai_api_key");
+    const openrouterKey = core.getInput("openrouter_api_key");
+    const modelOverride = core.getInput("model");
     const languageFilter = core.getInput("languages") || "auto";
     const diagramEnabled = core.getInput("diagram") !== "false";
     const minLines = parseInt(core.getInput("min_lines") || "50", 10);
+
+    const llmConfig = resolveLLMConfig(anthropicKey, openaiKey, openrouterKey, modelOverride);
 
     const baseRef = await resolveBaseRef(token);
 
     core.info(`Base ref: ${baseRef}`);
     core.info(`Languages: ${languageFilter}`);
     core.info(`Diagram: ${diagramEnabled}`);
+    if (llmConfig) {
+      core.info(`LLM provider: ${llmConfig.provider} (model: ${llmConfig.model})`);
+    }
 
     core.info("Extracting diff...");
     const extraction = await extract(baseRef, languageFilter);
@@ -88,27 +96,27 @@ async function run(): Promise<void> {
 
     let diagram: string | null = null;
     let summaryLine = "";
-    if (diagramEnabled && anthropicKey) {
+
+    if (diagramEnabled && llmConfig) {
+      const llm = createProvider(llmConfig);
       core.info("Generating summary and diagram...");
       try {
         [summaryLine, diagram] = await Promise.all([
           generateSummaryLine(
-            anthropicKey,
+            llm,
             extraction.fileSummaries,
             extraction.symbols,
             extraction.changedFiles.length,
             extraction.linesAdded,
-            extraction.linesRemoved,
-            apiBaseUrl
+            extraction.linesRemoved
           ),
           generateDiagram(
-            anthropicKey,
+            llm,
             extraction.fileSummaries,
             extraction.symbols,
             extraction.changedFiles.length,
             extraction.linesAdded,
-            extraction.linesRemoved,
-            apiBaseUrl
+            extraction.linesRemoved
           ),
         ]);
         core.info(`Summary: ${summaryLine}`);
@@ -120,9 +128,9 @@ async function run(): Promise<void> {
       } catch (err) {
         core.warning(`Generation failed: ${err}`);
       }
-    } else if (diagramEnabled && !anthropicKey) {
+    } else if (diagramEnabled && !llmConfig) {
       core.warning(
-        "Diagram enabled but no anthropic_api_key provided. Skipping diagram."
+        "Diagram enabled but no API key provided. Pass anthropic_api_key, openai_api_key, or openrouter_api_key."
       );
     }
 
