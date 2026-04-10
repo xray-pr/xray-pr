@@ -36064,21 +36064,17 @@ async function postComment(token, body) {
 /***/ }),
 
 /***/ 2074:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+/***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
 
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.generateSummaryLine = generateSummaryLine;
 exports.generateDiagram = generateDiagram;
-const sdk_1 = __importDefault(__nccwpck_require__(121));
 function sanitize(name) {
     return name.replace(/[(){}[\]<>"]/g, "").trim();
 }
-async function generateSummaryLine(apiKey, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved) {
+async function generateSummaryLine(llm, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved) {
     const nonTestSymbols = allSymbols.filter((s) => !/^(Test|Benchmark|test_|describe|it\()/i.test(s.name));
     const added = nonTestSymbols
         .filter((s) => s.change === "added")
@@ -36088,27 +36084,17 @@ async function generateSummaryLine(apiKey, fileSummaries, allSymbols, filesChang
         .filter((f) => !f.isTest)
         .map((f) => f.file.split("/").pop())
         .join(", ");
-    const client = new sdk_1.default({ apiKey });
-    const response = await client.messages.create({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 100,
-        messages: [
-            {
-                role: "user",
-                content: `Summarize this pull request in ONE short sentence (max 15 words). Be specific about what changed, not generic. No filler words.
+    const prompt = `Summarize this pull request in ONE short sentence (max 15 words). Be specific about what changed, not generic. No filler words.
 
 Files: ${files}
 Key symbols added: ${added.join(", ")}
 ${filesChanged} files, +${linesAdded}/-${linesRemoved}
 
-Output ONLY the sentence, nothing else.`,
-            },
-        ],
-    });
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
+Output ONLY the sentence, nothing else.`;
+    const text = await llm.chat(prompt, 100);
     return text.trim();
 }
-async function generateDiagram(apiKey, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved) {
+async function generateDiagram(llm, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved) {
     const relevantFiles = fileSummaries.filter((f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 20));
     if (relevantFiles.length === 0) {
         return null;
@@ -36140,14 +36126,7 @@ async function generateDiagram(apiKey, fileSummaries, allSymbols, filesChanged, 
             key_symbols: keySymbols,
         };
     });
-    const client = new sdk_1.default({ apiKey });
-    const response = await client.messages.create({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 2048,
-        messages: [
-            {
-                role: "user",
-                content: `Generate a Mermaid diagram for a pull request code review.
+    const prompt = `Generate a Mermaid diagram for a pull request code review.
 
 STRUCTURE — two types of nodes:
 1. FILE NODES — one per file, labeled with just "filename +N/-N"
@@ -36183,11 +36162,8 @@ CRITICAL SYNTAX RULES:
 Files and their data:
 ${JSON.stringify(payload, null, 2)}
 
-Output ONLY the mermaid code. No explanation.`,
-            },
-        ],
-    });
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
+Output ONLY the mermaid code. No explanation.`;
+    const text = await llm.chat(prompt, 2048);
     const mermaidMatch = text.match(/```(?:mermaid)?\s*\n([\s\S]*?)```/);
     if (mermaidMatch) {
         return mermaidMatch[1].trim();
@@ -36482,6 +36458,7 @@ const extract_1 = __nccwpck_require__(6542);
 const classify_1 = __nccwpck_require__(3813);
 const diagram_1 = __nccwpck_require__(2074);
 const comment_1 = __nccwpck_require__(2246);
+const llm_1 = __nccwpck_require__(1908);
 async function resolveBaseRef(token) {
     const explicit = core.getInput("base_ref");
     if (explicit)
@@ -36504,9 +36481,12 @@ async function run() {
     try {
         const token = core.getInput("github_token", { required: true });
         const anthropicKey = core.getInput("anthropic_api_key");
+        const openrouterKey = core.getInput("openrouter_api_key");
+        const model = core.getInput("model") || undefined;
         const languageFilter = core.getInput("languages") || "auto";
         const diagramEnabled = core.getInput("diagram") !== "false";
         const minLines = parseInt(core.getInput("min_lines") || "50", 10);
+        const llm = (0, llm_1.createLLMClient)({ anthropicKey, openrouterKey, model });
         const baseRef = await resolveBaseRef(token);
         core.info(`Base ref: ${baseRef}`);
         core.info(`Languages: ${languageFilter}`);
@@ -36539,12 +36519,12 @@ async function run() {
         core.info(`Found ${extraction.symbols.length} symbol changes`);
         let diagram = null;
         let summaryLine = "";
-        if (diagramEnabled && anthropicKey) {
+        if (diagramEnabled && llm) {
             core.info("Generating summary and diagram...");
             try {
                 [summaryLine, diagram] = await Promise.all([
-                    (0, diagram_1.generateSummaryLine)(anthropicKey, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved),
-                    (0, diagram_1.generateDiagram)(anthropicKey, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved),
+                    (0, diagram_1.generateSummaryLine)(llm, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved),
+                    (0, diagram_1.generateDiagram)(llm, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved),
                 ]);
                 core.info(`Summary: ${summaryLine}`);
                 if (diagram) {
@@ -36558,8 +36538,8 @@ async function run() {
                 core.warning(`Generation failed: ${err}`);
             }
         }
-        else if (diagramEnabled && !anthropicKey) {
-            core.warning("Diagram enabled but no anthropic_api_key provided. Skipping diagram.");
+        else if (diagramEnabled && !llm) {
+            core.warning("Diagram enabled but no LLM API key provided (set anthropic_api_key or openrouter_api_key). Skipping.");
         }
         const prNumber = github.context.payload.pull_request?.number
             ?? github.context.payload.issue?.number;
@@ -36583,6 +36563,74 @@ async function run() {
     }
 }
 run();
+
+
+/***/ }),
+
+/***/ 1908:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.createLLMClient = createLLMClient;
+const sdk_1 = __importDefault(__nccwpck_require__(121));
+function createLLMClient(opts) {
+    if (opts.anthropicKey) {
+        return new AnthropicLLM(opts.anthropicKey, opts.model || "claude-sonnet-4-20250514");
+    }
+    if (opts.openrouterKey) {
+        return new OpenRouterLLM(opts.openrouterKey, opts.model || "anthropic/claude-sonnet-4-20250514");
+    }
+    return null;
+}
+class AnthropicLLM {
+    client;
+    model;
+    constructor(apiKey, model) {
+        this.client = new sdk_1.default({ apiKey });
+        this.model = model;
+    }
+    async chat(prompt, maxTokens) {
+        const response = await this.client.messages.create({
+            model: this.model,
+            max_tokens: maxTokens,
+            messages: [{ role: "user", content: prompt }],
+        });
+        return response.content[0].type === "text" ? response.content[0].text : "";
+    }
+}
+class OpenRouterLLM {
+    apiKey;
+    model;
+    constructor(apiKey, model) {
+        this.apiKey = apiKey;
+        this.model = model;
+    }
+    async chat(prompt, maxTokens) {
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${this.apiKey}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                model: this.model,
+                max_tokens: maxTokens,
+                messages: [{ role: "user", content: prompt }],
+            }),
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`OpenRouter API error ${response.status}: ${text}`);
+        }
+        const data = await response.json();
+        return data.choices?.[0]?.message?.content?.trim() ?? "";
+    }
+}
 
 
 /***/ }),
