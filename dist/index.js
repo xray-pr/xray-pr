@@ -35815,12 +35815,56 @@ function formatSymbols(symbols) {
     if (added.length === 0 && removed.length === 0) {
         return "_No structural symbol changes detected._";
     }
-    const lines = [];
+    const seen = new Set();
+    const modified = [];
+    const pureAdded = [];
+    const pureRemoved = [];
     for (const s of added) {
-        lines.push(`+ ${s.name.padEnd(30)} (new ${s.kind})`);
+        if (removed.some((r) => r.name === s.name && r.kind === s.kind)) {
+            if (!seen.has(`${s.name}:${s.kind}`)) {
+                modified.push({ ...s, change: "added" });
+                seen.add(`${s.name}:${s.kind}`);
+            }
+        }
+        else {
+            pureAdded.push(s);
+        }
     }
     for (const s of removed) {
-        lines.push(`- ${s.name.padEnd(30)} (removed ${s.kind})`);
+        if (!added.some((a) => a.name === s.name && a.kind === s.kind)) {
+            pureRemoved.push(s);
+        }
+    }
+    const lines = [];
+    for (const s of pureAdded) {
+        lines.push(`+ ${s.name.padEnd(35)} (new ${s.kind})`);
+    }
+    for (const s of modified) {
+        lines.push(`~ ${s.name.padEnd(35)} (modified ${s.kind})`);
+    }
+    for (const s of pureRemoved) {
+        lines.push(`- ${s.name.padEnd(35)} (removed ${s.kind})`);
+    }
+    return lines.join("\n");
+}
+function formatFileRanking(fileSummaries) {
+    const nonTest = fileSummaries.filter((f) => !f.isTest && f.symbols.length > 0);
+    const testFiles = fileSummaries.filter((f) => f.isTest);
+    if (nonTest.length === 0 && testFiles.length === 0)
+        return "";
+    const lines = [];
+    let rank = 1;
+    for (const f of nonTest) {
+        const kindParts = Object.entries(f.symbolsByKind)
+            .map(([k, v]) => `${v} ${k}`)
+            .join(", ");
+        const label = f.isNew ? " (new)" : "";
+        lines.push(`${String(rank).padStart(2)}. ${f.file}${label}  — +${f.linesAdded}/-${f.linesRemoved}, ${kindParts}`);
+        rank++;
+    }
+    if (testFiles.length > 0) {
+        const totalTestLines = testFiles.reduce((sum, f) => sum + f.linesAdded, 0);
+        lines.push(`${String(rank).padStart(2)}. ${testFiles.length} test file${testFiles.length > 1 ? "s" : ""}  — +${totalTestLines} lines (verify after reviewing above)`);
     }
     return lines.join("\n");
 }
@@ -35832,17 +35876,29 @@ function formatFilesSummary(newFiles, deletedFiles, totalChanged) {
         parts.push(`**${deletedFiles.length}** deleted`);
     return parts.join(" · ");
 }
-function composeComment(classification, symbols, newFiles, deletedFiles, totalFiles, linesAdded, linesRemoved, diagram) {
+function composeComment(classification, symbols, fileSummaries, newFiles, deletedFiles, totalFiles, linesAdded, linesRemoved, diagram) {
     const sections = [COMMENT_HEADER, "## xray — architecture diff", ""];
-    sections.push(formatFilesSummary(newFiles, deletedFiles, totalFiles) +
-        ` · **+${linesAdded}** / **-${linesRemoved}**`);
+    const reviewLines = classification.logic;
+    const testLines = classification.tests;
+    let summary = formatFilesSummary(newFiles, deletedFiles, totalFiles) +
+        ` · **+${linesAdded}** / **-${linesRemoved}**`;
+    if (reviewLines > 0 && testLines > 0) {
+        summary += `\n\n> **Review ~${reviewLines} lines of logic** — ${testLines} lines are tests`;
+    }
+    else if (reviewLines > 0) {
+        summary += `\n\n> **Review ~${reviewLines} lines of logic**`;
+    }
+    sections.push(summary);
     sections.push("");
     const classStr = (0, classify_1.formatClassification)(classification);
     if (classStr) {
-        sections.push("### Change classification");
+        sections.push("<details><summary>Change classification</summary>");
+        sections.push("");
         sections.push("```");
         sections.push(classStr);
         sections.push("```");
+        sections.push("");
+        sections.push("</details>");
         sections.push("");
     }
     sections.push("### Structural changes");
@@ -35850,6 +35906,14 @@ function composeComment(classification, symbols, newFiles, deletedFiles, totalFi
     sections.push(formatSymbols(symbols));
     sections.push("```");
     sections.push("");
+    const fileRanking = formatFileRanking(fileSummaries);
+    if (fileRanking) {
+        sections.push("### Files by change density");
+        sections.push("```");
+        sections.push(fileRanking);
+        sections.push("```");
+        sections.push("");
+    }
     if (newFiles.length > 0) {
         sections.push("<details><summary>New files</summary>");
         sections.push("");
@@ -35915,19 +35979,20 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.generateDiagram = generateDiagram;
 const sdk_1 = __importDefault(__nccwpck_require__(121));
-async function generateDiagram(apiKey, symbols, filesChanged, linesAdded, linesRemoved) {
-    const added = symbols.filter((s) => s.change === "added");
-    const removed = symbols.filter((s) => s.change === "removed");
-    if (added.length === 0 && removed.length === 0) {
+async function generateDiagram(apiKey, fileSummaries, filesChanged, linesAdded, linesRemoved) {
+    const relevantFiles = fileSummaries.filter((f) => !f.isTest && f.symbols.length > 0);
+    if (relevantFiles.length === 0) {
         return null;
     }
-    const payload = {
-        added: added.map((s) => ({ name: s.name, kind: s.kind, file: s.file })),
-        removed: removed.map((s) => ({ name: s.name, kind: s.kind, file: s.file })),
-        files_changed: filesChanged,
-        lines_added: linesAdded,
-        lines_removed: linesRemoved,
-    };
+    const payload = relevantFiles.map((f) => ({
+        file: f.file,
+        lines_added: f.linesAdded,
+        lines_removed: f.linesRemoved,
+        is_new: f.isNew,
+        symbols: Object.entries(f.symbolsByKind)
+            .map(([kind, count]) => `${count} ${kind}`)
+            .join(", "),
+    }));
     const client = new sdk_1.default({ apiKey });
     const response = await client.messages.create({
         model: "claude-sonnet-4-20250514",
@@ -35935,15 +36000,19 @@ async function generateDiagram(apiKey, symbols, filesChanged, linesAdded, linesR
         messages: [
             {
                 role: "user",
-                content: `Generate a Mermaid flowchart (graph LR) showing the dependency flow between these symbols from a pull request.
+                content: `Generate a Mermaid flowchart (graph LR) showing the relationship between these files from a pull request.
 
 Rules:
-- Show how new symbols connect to each other based on file grouping and naming conventions
-- Use red fill for new symbols, gray for modified/existing context
-- Keep it minimal — only show symbols from the data, do not invent nodes
-- Output ONLY the Mermaid code block, nothing else — no explanation, no prose
+- Each node is a FILE (not individual symbols)
+- Node label format: "filename\\n+N lines\\nN type, N function" (use the symbols data)
+- New files use red fill: style NodeId fill:#e74c3c,color:#fff
+- Modified files use blue fill: style NodeId fill:#3498db,color:#fff
+- Draw arrows showing likely dependency direction based on file names and common patterns (handlers→services→stores, routes→controllers→models, etc.)
+- Keep it minimal — only files from the data, do not invent nodes
+- Maximum 8 nodes — if more files, group small ones
+- Output ONLY the Mermaid code block, nothing else
 
-Data:
+Files:
 ${JSON.stringify(payload, null, 2)}`,
             },
         ],
@@ -36148,17 +36217,40 @@ async function extract(baseRef, languageFilter) {
     const allPatterns = loadPatterns(languageFilter);
     const languages = detectLanguages(changedFiles, allPatterns);
     const symbols = [];
+    const fileSummaries = [];
+    const newFileSet = new Set(newFiles);
     for (const [file, lines] of diffByFile) {
         const ext = path.extname(file);
+        const added = lines.filter((l) => l.startsWith("+") && !l.startsWith("+++")).length;
+        const removed = lines.filter((l) => l.startsWith("-") && !l.startsWith("---")).length;
+        let fileSymbols = [];
+        let isTest = false;
         for (const [, pattern] of allPatterns) {
             if (pattern.extensions.includes(ext)) {
-                symbols.push(...extractSymbolsFromDiff(lines, file, pattern));
+                fileSymbols = extractSymbolsFromDiff(lines, file, pattern);
+                isTest = new RegExp(pattern.test_file_pattern).test(file);
                 break;
             }
         }
+        symbols.push(...fileSymbols);
+        const symbolsByKind = {};
+        for (const s of fileSymbols) {
+            symbolsByKind[s.kind] = (symbolsByKind[s.kind] || 0) + 1;
+        }
+        fileSummaries.push({
+            file,
+            linesAdded: added,
+            linesRemoved: removed,
+            symbols: fileSymbols,
+            symbolsByKind,
+            isTest,
+            isNew: newFileSet.has(file),
+        });
     }
+    fileSummaries.sort((a, b) => b.symbols.length - a.symbols.length);
     return {
         symbols,
+        fileSummaries,
         changedFiles,
         newFiles,
         deletedFiles,
@@ -36279,7 +36371,7 @@ async function run() {
         if (diagramEnabled && anthropicKey) {
             core.info("Generating diagram...");
             try {
-                diagram = await (0, diagram_1.generateDiagram)(anthropicKey, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved);
+                diagram = await (0, diagram_1.generateDiagram)(anthropicKey, extraction.fileSummaries, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved);
                 if (diagram) {
                     core.info("Diagram generated successfully");
                 }
@@ -36295,7 +36387,7 @@ async function run() {
             core.warning("Diagram enabled but no anthropic_api_key provided. Skipping diagram.");
         }
         core.info("Composing comment...");
-        const body = (0, comment_1.composeComment)(classification, extraction.symbols, extraction.newFiles, extraction.deletedFiles, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, diagram);
+        const body = (0, comment_1.composeComment)(classification, extraction.symbols, extraction.fileSummaries, extraction.newFiles, extraction.deletedFiles, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, diagram);
         core.info("Posting comment...");
         await (0, comment_1.postComment)(token, body);
         core.info("Done.");

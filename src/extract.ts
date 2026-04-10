@@ -16,8 +16,19 @@ export interface LanguagePattern {
   symbols: Record<string, string>;
 }
 
+export interface FileSummary {
+  file: string;
+  linesAdded: number;
+  linesRemoved: number;
+  symbols: Symbol[];
+  symbolsByKind: Record<string, number>;
+  isTest: boolean;
+  isNew: boolean;
+}
+
 export interface ExtractionResult {
   symbols: Symbol[];
+  fileSummaries: FileSummary[];
   changedFiles: string[];
   newFiles: string[];
   deletedFiles: string[];
@@ -203,19 +214,48 @@ export async function extract(
   const languages = detectLanguages(changedFiles, allPatterns);
 
   const symbols: Symbol[] = [];
+  const fileSummaries: FileSummary[] = [];
+  const newFileSet = new Set(newFiles);
 
   for (const [file, lines] of diffByFile) {
     const ext = path.extname(file);
+    const added = lines.filter((l) => l.startsWith("+") && !l.startsWith("+++")).length;
+    const removed = lines.filter((l) => l.startsWith("-") && !l.startsWith("---")).length;
+
+    let fileSymbols: Symbol[] = [];
+    let isTest = false;
+
     for (const [, pattern] of allPatterns) {
       if (pattern.extensions.includes(ext)) {
-        symbols.push(...extractSymbolsFromDiff(lines, file, pattern));
+        fileSymbols = extractSymbolsFromDiff(lines, file, pattern);
+        isTest = new RegExp(pattern.test_file_pattern).test(file);
         break;
       }
     }
+
+    symbols.push(...fileSymbols);
+
+    const symbolsByKind: Record<string, number> = {};
+    for (const s of fileSymbols) {
+      symbolsByKind[s.kind] = (symbolsByKind[s.kind] || 0) + 1;
+    }
+
+    fileSummaries.push({
+      file,
+      linesAdded: added,
+      linesRemoved: removed,
+      symbols: fileSymbols,
+      symbolsByKind,
+      isTest,
+      isNew: newFileSet.has(file),
+    });
   }
+
+  fileSummaries.sort((a, b) => b.symbols.length - a.symbols.length);
 
   return {
     symbols,
+    fileSummaries,
     changedFiles,
     newFiles,
     deletedFiles,

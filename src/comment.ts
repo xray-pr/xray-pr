@@ -1,6 +1,6 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
-import { Symbol } from "./extract";
+import { Symbol, FileSummary } from "./extract";
 import { Classification, formatClassification } from "./classify";
 
 const COMMENT_HEADER = "<!-- xray-arch-diff -->";
@@ -13,13 +13,66 @@ function formatSymbols(symbols: Symbol[]): string {
     return "_No structural symbol changes detected._";
   }
 
-  const lines: string[] = [];
+  const seen = new Set<string>();
+  const modified: Symbol[] = [];
+  const pureAdded: Symbol[] = [];
+  const pureRemoved: Symbol[] = [];
 
   for (const s of added) {
-    lines.push(`+ ${s.name.padEnd(30)} (new ${s.kind})`);
+    if (removed.some((r) => r.name === s.name && r.kind === s.kind)) {
+      if (!seen.has(`${s.name}:${s.kind}`)) {
+        modified.push({ ...s, change: "added" });
+        seen.add(`${s.name}:${s.kind}`);
+      }
+    } else {
+      pureAdded.push(s);
+    }
   }
   for (const s of removed) {
-    lines.push(`- ${s.name.padEnd(30)} (removed ${s.kind})`);
+    if (!added.some((a) => a.name === s.name && a.kind === s.kind)) {
+      pureRemoved.push(s);
+    }
+  }
+
+  const lines: string[] = [];
+  for (const s of pureAdded) {
+    lines.push(`+ ${s.name.padEnd(35)} (new ${s.kind})`);
+  }
+  for (const s of modified) {
+    lines.push(`~ ${s.name.padEnd(35)} (modified ${s.kind})`);
+  }
+  for (const s of pureRemoved) {
+    lines.push(`- ${s.name.padEnd(35)} (removed ${s.kind})`);
+  }
+
+  return lines.join("\n");
+}
+
+function formatFileRanking(fileSummaries: FileSummary[]): string {
+  const nonTest = fileSummaries.filter((f) => !f.isTest && f.symbols.length > 0);
+  const testFiles = fileSummaries.filter((f) => f.isTest);
+
+  if (nonTest.length === 0 && testFiles.length === 0) return "";
+
+  const lines: string[] = [];
+  let rank = 1;
+
+  for (const f of nonTest) {
+    const kindParts = Object.entries(f.symbolsByKind)
+      .map(([k, v]) => `${v} ${k}`)
+      .join(", ");
+    const label = f.isNew ? " (new)" : "";
+    lines.push(
+      `${String(rank).padStart(2)}. ${f.file}${label}  — +${f.linesAdded}/-${f.linesRemoved}, ${kindParts}`
+    );
+    rank++;
+  }
+
+  if (testFiles.length > 0) {
+    const totalTestLines = testFiles.reduce((sum, f) => sum + f.linesAdded, 0);
+    lines.push(
+      `${String(rank).padStart(2)}. ${testFiles.length} test file${testFiles.length > 1 ? "s" : ""}  — +${totalTestLines} lines (verify after reviewing above)`
+    );
   }
 
   return lines.join("\n");
@@ -39,6 +92,7 @@ function formatFilesSummary(
 export function composeComment(
   classification: Classification,
   symbols: Symbol[],
+  fileSummaries: FileSummary[],
   newFiles: string[],
   deletedFiles: string[],
   totalFiles: number,
@@ -48,18 +102,27 @@ export function composeComment(
 ): string {
   const sections: string[] = [COMMENT_HEADER, "## xray — architecture diff", ""];
 
-  sections.push(
-    formatFilesSummary(newFiles, deletedFiles, totalFiles) +
-      ` · **+${linesAdded}** / **-${linesRemoved}**`
-  );
+  const reviewLines = classification.logic;
+  const testLines = classification.tests;
+  let summary = formatFilesSummary(newFiles, deletedFiles, totalFiles) +
+    ` · **+${linesAdded}** / **-${linesRemoved}**`;
+  if (reviewLines > 0 && testLines > 0) {
+    summary += `\n\n> **Review ~${reviewLines} lines of logic** — ${testLines} lines are tests`;
+  } else if (reviewLines > 0) {
+    summary += `\n\n> **Review ~${reviewLines} lines of logic**`;
+  }
+  sections.push(summary);
   sections.push("");
 
   const classStr = formatClassification(classification);
   if (classStr) {
-    sections.push("### Change classification");
+    sections.push("<details><summary>Change classification</summary>");
+    sections.push("");
     sections.push("```");
     sections.push(classStr);
     sections.push("```");
+    sections.push("");
+    sections.push("</details>");
     sections.push("");
   }
 
@@ -68,6 +131,15 @@ export function composeComment(
   sections.push(formatSymbols(symbols));
   sections.push("```");
   sections.push("");
+
+  const fileRanking = formatFileRanking(fileSummaries);
+  if (fileRanking) {
+    sections.push("### Files by change density");
+    sections.push("```");
+    sections.push(fileRanking);
+    sections.push("```");
+    sections.push("");
+  }
 
   if (newFiles.length > 0) {
     sections.push("<details><summary>New files</summary>");
@@ -108,6 +180,7 @@ export async function postComment(
     core.warning("Could not determine PR number. Skipping comment.");
     return;
   }
+
   const repo = ctx.repo;
 
   const { data: comments } = await octokit.rest.issues.listComments({

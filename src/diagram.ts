@@ -1,27 +1,30 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { Symbol } from "./extract";
+import { FileSummary } from "./extract";
 
 export async function generateDiagram(
   apiKey: string,
-  symbols: Symbol[],
+  fileSummaries: FileSummary[],
   filesChanged: number,
   linesAdded: number,
   linesRemoved: number
 ): Promise<string | null> {
-  const added = symbols.filter((s) => s.change === "added");
-  const removed = symbols.filter((s) => s.change === "removed");
+  const relevantFiles = fileSummaries.filter(
+    (f) => !f.isTest && f.symbols.length > 0
+  );
 
-  if (added.length === 0 && removed.length === 0) {
+  if (relevantFiles.length === 0) {
     return null;
   }
 
-  const payload = {
-    added: added.map((s) => ({ name: s.name, kind: s.kind, file: s.file })),
-    removed: removed.map((s) => ({ name: s.name, kind: s.kind, file: s.file })),
-    files_changed: filesChanged,
-    lines_added: linesAdded,
-    lines_removed: linesRemoved,
-  };
+  const payload = relevantFiles.map((f) => ({
+    file: f.file,
+    lines_added: f.linesAdded,
+    lines_removed: f.linesRemoved,
+    is_new: f.isNew,
+    symbols: Object.entries(f.symbolsByKind)
+      .map(([kind, count]) => `${count} ${kind}`)
+      .join(", "),
+  }));
 
   const client = new Anthropic({ apiKey });
 
@@ -31,15 +34,19 @@ export async function generateDiagram(
     messages: [
       {
         role: "user",
-        content: `Generate a Mermaid flowchart (graph LR) showing the dependency flow between these symbols from a pull request.
+        content: `Generate a Mermaid flowchart (graph LR) showing the relationship between these files from a pull request.
 
 Rules:
-- Show how new symbols connect to each other based on file grouping and naming conventions
-- Use red fill for new symbols, gray for modified/existing context
-- Keep it minimal — only show symbols from the data, do not invent nodes
-- Output ONLY the Mermaid code block, nothing else — no explanation, no prose
+- Each node is a FILE (not individual symbols)
+- Node label format: "filename\\n+N lines\\nN type, N function" (use the symbols data)
+- New files use red fill: style NodeId fill:#e74c3c,color:#fff
+- Modified files use blue fill: style NodeId fill:#3498db,color:#fff
+- Draw arrows showing likely dependency direction based on file names and common patterns (handlers→services→stores, routes→controllers→models, etc.)
+- Keep it minimal — only files from the data, do not invent nodes
+- Maximum 8 nodes — if more files, group small ones
+- Output ONLY the Mermaid code block, nothing else
 
-Data:
+Files:
 ${JSON.stringify(payload, null, 2)}`,
       },
     ],

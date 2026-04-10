@@ -91,7 +91,7 @@ async function run(): Promise<void> {
       try {
         diagram = await generateDiagram(
           anthropicKey,
-          extraction.symbols,
+          extraction.fileSummaries,
           extraction.changedFiles.length,
           extraction.linesAdded,
           extraction.linesRemoved
@@ -114,6 +114,7 @@ async function run(): Promise<void> {
     const body = composeComment(
       classification,
       extraction.symbols,
+      extraction.fileSummaries,
       extraction.newFiles,
       extraction.deletedFiles,
       extraction.changedFiles.length,
