@@ -1,4 +1,5 @@
 import * as core from "@actions/core";
+import * as exec from "@actions/exec";
 import * as github from "@actions/github";
 import * as fs from "fs";
 import * as path from "path";
@@ -6,6 +7,28 @@ import { extract, LanguagePattern } from "./extract";
 import { classify } from "./classify";
 import { generateDiagram } from "./diagram";
 import { composeComment, postComment } from "./comment";
+
+async function resolveBaseRef(token: string): Promise<string> {
+  const explicit = core.getInput("base_ref");
+  if (explicit) return explicit;
+
+  if (github.context.payload.pull_request) {
+    return github.context.payload.pull_request.base.sha;
+  }
+
+  if (github.context.payload.issue?.pull_request) {
+    const octokit = github.getOctokit(token);
+    const { data: pr } = await octokit.rest.pulls.get({
+      ...github.context.repo,
+      pull_number: github.context.payload.issue.number,
+    });
+
+    await exec.exec("git", ["fetch", "origin", pr.base.ref], { silent: true });
+    return `origin/${pr.base.ref}`;
+  }
+
+  return "origin/main";
+}
 
 async function run(): Promise<void> {
   try {
@@ -15,13 +38,7 @@ async function run(): Promise<void> {
     const diagramEnabled = core.getInput("diagram") !== "false";
     const minLines = parseInt(core.getInput("min_lines") || "50", 10);
 
-    let baseRef = core.getInput("base_ref");
-    if (!baseRef && github.context.payload.pull_request) {
-      baseRef = github.context.payload.pull_request.base.sha;
-    }
-    if (!baseRef) {
-      baseRef = "main";
-    }
+    const baseRef = await resolveBaseRef(token);
 
     core.info(`Base ref: ${baseRef}`);
     core.info(`Languages: ${languageFilter}`);

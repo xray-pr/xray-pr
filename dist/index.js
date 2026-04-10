@@ -35805,6 +35805,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.composeComment = composeComment;
 exports.postComment = postComment;
+const core = __importStar(__nccwpck_require__(7484));
 const github = __importStar(__nccwpck_require__(3228));
 const classify_1 = __nccwpck_require__(3813);
 const COMMENT_HEADER = "<!-- xray-arch-diff -->";
@@ -35872,10 +35873,11 @@ function composeComment(classification, symbols, newFiles, deletedFiles, totalFi
 async function postComment(token, body) {
     const octokit = github.getOctokit(token);
     const ctx = github.context;
-    if (!ctx.payload.pull_request) {
+    const prNumber = ctx.payload.pull_request?.number ?? ctx.payload.issue?.number;
+    if (!prNumber) {
+        core.warning("Could not determine PR number. Skipping comment.");
         return;
     }
-    const prNumber = ctx.payload.pull_request.number;
     const repo = ctx.repo;
     const { data: comments } = await octokit.rest.issues.listComments({
         ...repo,
@@ -36210,6 +36212,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core = __importStar(__nccwpck_require__(7484));
+const exec = __importStar(__nccwpck_require__(5236));
 const github = __importStar(__nccwpck_require__(3228));
 const fs = __importStar(__nccwpck_require__(9896));
 const path = __importStar(__nccwpck_require__(6928));
@@ -36217,6 +36220,24 @@ const extract_1 = __nccwpck_require__(6542);
 const classify_1 = __nccwpck_require__(3813);
 const diagram_1 = __nccwpck_require__(2074);
 const comment_1 = __nccwpck_require__(2246);
+async function resolveBaseRef(token) {
+    const explicit = core.getInput("base_ref");
+    if (explicit)
+        return explicit;
+    if (github.context.payload.pull_request) {
+        return github.context.payload.pull_request.base.sha;
+    }
+    if (github.context.payload.issue?.pull_request) {
+        const octokit = github.getOctokit(token);
+        const { data: pr } = await octokit.rest.pulls.get({
+            ...github.context.repo,
+            pull_number: github.context.payload.issue.number,
+        });
+        await exec.exec("git", ["fetch", "origin", pr.base.ref], { silent: true });
+        return `origin/${pr.base.ref}`;
+    }
+    return "origin/main";
+}
 async function run() {
     try {
         const token = core.getInput("github_token", { required: true });
@@ -36224,13 +36245,7 @@ async function run() {
         const languageFilter = core.getInput("languages") || "auto";
         const diagramEnabled = core.getInput("diagram") !== "false";
         const minLines = parseInt(core.getInput("min_lines") || "50", 10);
-        let baseRef = core.getInput("base_ref");
-        if (!baseRef && github.context.payload.pull_request) {
-            baseRef = github.context.payload.pull_request.base.sha;
-        }
-        if (!baseRef) {
-            baseRef = "main";
-        }
+        const baseRef = await resolveBaseRef(token);
         core.info(`Base ref: ${baseRef}`);
         core.info(`Languages: ${languageFilter}`);
         core.info(`Diagram: ${diagramEnabled}`);

@@ -1,0 +1,13 @@
+{
+  "extensions": [".java", ".kt"],
+  "doc_extensions": [],
+  "test_file_pattern": "(Test|Tests|Spec)\\.java$|(Test|Tests|Spec)\\.kt$",
+  "symbols": {
+    "types": "^[+-].*(public|protected|private)?\\s*(abstract\\s+)?(class|interface|enum|record)\\s+(\\w+)",
+    "functions": "^[+-].*(public|protected|private)\\s+.*\\s+(\\w+)\\s*\\(",
+    "errors": "^[+-].*(class\\s+\\w*Exception\\w*|throws\\s+\\w+)",
+    "tests": "^[+-].*(\\s*@Test|\\s*@ParameterizedTest)",
+    "config": "^[+-].*(class|record)\\s+\\w*Config\\w*",
+    "concurrency": "^[+-].*(synchronized|ExecutorService|CompletableFuture|Thread\\.start|ReentrantLock|AtomicInteger|CountDownLatch)"
+  }
+}

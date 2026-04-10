@@ -1,3 +1,4 @@
+import * as core from "@actions/core";
 import * as github from "@actions/github";
 import { Symbol } from "./extract";
 import { Classification, formatClassification } from "./classify";
@@ -101,11 +102,12 @@ export async function postComment(
   const octokit = github.getOctokit(token);
   const ctx = github.context;
 
-  if (!ctx.payload.pull_request) {
+  const prNumber =
+    ctx.payload.pull_request?.number ?? ctx.payload.issue?.number;
+  if (!prNumber) {
+    core.warning("Could not determine PR number. Skipping comment.");
     return;
   }
-
-  const prNumber = ctx.payload.pull_request.number;
   const repo = ctx.repo;
 
   const { data: comments } = await octokit.rest.issues.listComments({
