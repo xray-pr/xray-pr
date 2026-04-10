@@ -18,5 +18,6 @@ jobs:
       - uses: kasrakhosravi/xray@v0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          api_base_url: https://openrouter.ai/api/v1
           min_lines: "10"
