@@ -1,6 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { FileSummary, Symbol } from "./extract";
 
+function sanitize(name: string): string {
+  return name.replace(/[(){}[\]<>]/g, "").trim();
+}
+
 export async function generateDiagram(
   apiKey: string,
   fileSummaries: FileSummary[],
@@ -35,8 +39,8 @@ export async function generateDiagram(
       is_new: f.isNew,
       has_concurrency: hasConcurrency,
       has_error_changes: hasErrors,
-      added_symbols: added.map((s) => `${s.name} (${s.kind})`),
-      removed_symbols: removed.map((s) => `${s.name} (${s.kind})`),
+      added_symbols: added.map((s) => `${sanitize(s.name)} - ${s.kind}`),
+      removed_symbols: removed.map((s) => `${sanitize(s.name)} - ${s.kind}`),
     };
   });
 
@@ -67,6 +71,8 @@ Requirements:
 - Label arrows with the relationship (e.g., "calls", "implements", "configures")
 - If a file has both concurrency and errors, use RED (concurrency takes priority)
 - Maximum 10 nodes. Group very small files if needed.
+- CRITICAL: All node labels MUST use quoted strings: A["label text here"] — never unquoted brackets
+- CRITICAL: Escape special characters in labels — no parentheses (), no angle brackets <>, no curly braces {} inside node labels. Replace them with spaces or remove them.
 - Make it detailed enough that a reviewer can understand the PR without reading any code
 - Output ONLY the mermaid code, no explanation
 

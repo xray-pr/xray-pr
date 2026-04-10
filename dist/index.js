@@ -36012,6 +36012,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.generateDiagram = generateDiagram;
 const sdk_1 = __importDefault(__nccwpck_require__(121));
+function sanitize(name) {
+    return name.replace(/[(){}[\]<>]/g, "").trim();
+}
 async function generateDiagram(apiKey, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved) {
     const relevantFiles = fileSummaries.filter((f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 20));
     if (relevantFiles.length === 0) {
@@ -36031,8 +36034,8 @@ async function generateDiagram(apiKey, fileSummaries, allSymbols, filesChanged, 
             is_new: f.isNew,
             has_concurrency: hasConcurrency,
             has_error_changes: hasErrors,
-            added_symbols: added.map((s) => `${s.name} (${s.kind})`),
-            removed_symbols: removed.map((s) => `${s.name} (${s.kind})`),
+            added_symbols: added.map((s) => `${sanitize(s.name)} - ${s.kind}`),
+            removed_symbols: removed.map((s) => `${sanitize(s.name)} - ${s.kind}`),
         };
     });
     const client = new sdk_1.default({ apiKey });
@@ -36061,6 +36064,8 @@ Requirements:
 - Label arrows with the relationship (e.g., "calls", "implements", "configures")
 - If a file has both concurrency and errors, use RED (concurrency takes priority)
 - Maximum 10 nodes. Group very small files if needed.
+- CRITICAL: All node labels MUST use quoted strings: A["label text here"] — never unquoted brackets
+- CRITICAL: Escape special characters in labels — no parentheses (), no angle brackets <>, no curly braces {} inside node labels. Replace them with spaces or remove them.
 - Make it detailed enough that a reviewer can understand the PR without reading any code
 - Output ONLY the mermaid code, no explanation
 
