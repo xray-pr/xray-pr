@@ -36587,7 +36587,7 @@ const sdk_1 = __importDefault(__nccwpck_require__(121));
 const DEFAULT_MODELS = {
     anthropic: "claude-sonnet-4-20250514",
     openai: "gpt-4o",
-    openrouter: "anthropic/claude-sonnet-4-20250514",
+    openrouter: "anthropic/claude-sonnet-4",
 };
 function resolveLLMConfig(anthropicKey, openaiKey, openrouterKey, modelOverride) {
     if (anthropicKey) {
