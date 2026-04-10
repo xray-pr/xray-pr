@@ -1,9 +1,14 @@
 import * as core from "@actions/core";
+import * as crypto from "crypto";
 import * as github from "@actions/github";
 import { Symbol, FileSummary } from "./extract";
 import { Classification, formatClassification } from "./classify";
 
 const COMMENT_HEADER = "<!-- xray-arch-diff -->";
+
+function hashPath(filePath: string): string {
+  return crypto.createHash("sha256").update(filePath).digest("hex");
+}
 
 const GENERIC_SYMBOL_NAMES = new Set([
   "go func", "go", "sync.Mutex", "sync.RWMutex", "sync.WaitGroup",
@@ -170,7 +175,8 @@ export function composeComment(
   totalFiles: number,
   linesAdded: number,
   linesRemoved: number,
-  diagram: string | null
+  diagram: string | null,
+  prFilesUrl: string
 ): string {
   const sections: string[] = [COMMENT_HEADER];
 
@@ -242,7 +248,9 @@ export function composeComment(
       if (keyNames.length < nonTestNonGeneric.length) keyNames.push("...");
 
       const shortFile = f.file.split("/").pop() || f.file;
-      const fileLink = `[${shortFile}](${f.file})`;
+      const fileLink = prFilesUrl
+        ? `[${shortFile}](${prFilesUrl}#diff-${hashPath(f.file)})`
+        : shortFile;
 
       rows.push({
         icon,

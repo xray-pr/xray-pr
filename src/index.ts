@@ -111,6 +111,13 @@ async function run(): Promise<void> {
       );
     }
 
+    const prNumber = github.context.payload.pull_request?.number
+      ?? github.context.payload.issue?.number;
+    const repo = github.context.repo;
+    const prFilesUrl = prNumber
+      ? `https://github.com/${repo.owner}/${repo.repo}/pull/${prNumber}/files`
+      : "";
+
     core.info("Composing comment...");
     const body = composeComment(
       classification,
@@ -121,7 +128,8 @@ async function run(): Promise<void> {
       extraction.changedFiles.length,
       extraction.linesAdded,
       extraction.linesRemoved,
-      diagram
+      diagram,
+      prFilesUrl
     );
 
     core.info("Posting comment...");

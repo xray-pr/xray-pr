@@ -35806,8 +35806,12 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.composeComment = composeComment;
 exports.postComment = postComment;
 const core = __importStar(__nccwpck_require__(7484));
+const crypto = __importStar(__nccwpck_require__(6982));
 const github = __importStar(__nccwpck_require__(3228));
 const COMMENT_HEADER = "<!-- xray-arch-diff -->";
+function hashPath(filePath) {
+    return crypto.createHash("sha256").update(filePath).digest("hex");
+}
 const GENERIC_SYMBOL_NAMES = new Set([
     "go func", "go", "sync.Mutex", "sync.RWMutex", "sync.WaitGroup",
     "sync.Once", "make(chan", "makeChan", "fmt.Errorf", "errors.New",
@@ -35938,7 +35942,7 @@ function formatFilesSummary(newFiles, deletedFiles, totalChanged) {
         parts.push(`**${deletedFiles.length}** deleted`);
     return parts.join(" · ");
 }
-function composeComment(classification, symbols, fileSummaries, newFiles, deletedFiles, totalFiles, linesAdded, linesRemoved, diagram) {
+function composeComment(classification, symbols, fileSummaries, newFiles, deletedFiles, totalFiles, linesAdded, linesRemoved, diagram, prFilesUrl) {
     const sections = [COMMENT_HEADER];
     if (diagram) {
         sections.push("```mermaid");
@@ -35993,7 +35997,9 @@ function composeComment(classification, symbols, fileSummaries, newFiles, delete
             if (keyNames.length < nonTestNonGeneric.length)
                 keyNames.push("...");
             const shortFile = f.file.split("/").pop() || f.file;
-            const fileLink = `[${shortFile}](${f.file})`;
+            const fileLink = prFilesUrl
+                ? `[${shortFile}](${prFilesUrl}#diff-${hashPath(f.file)})`
+                : shortFile;
             rows.push({
                 icon,
                 riskLevel,
@@ -36515,8 +36521,14 @@ async function run() {
         else if (diagramEnabled && !anthropicKey) {
             core.warning("Diagram enabled but no anthropic_api_key provided. Skipping diagram.");
         }
+        const prNumber = github.context.payload.pull_request?.number
+            ?? github.context.payload.issue?.number;
+        const repo = github.context.repo;
+        const prFilesUrl = prNumber
+            ? `https://github.com/${repo.owner}/${repo.repo}/pull/${prNumber}/files`
+            : "";
         core.info("Composing comment...");
-        const body = (0, comment_1.composeComment)(classification, extraction.symbols, extraction.fileSummaries, extraction.newFiles, extraction.deletedFiles, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, diagram);
+        const body = (0, comment_1.composeComment)(classification, extraction.symbols, extraction.fileSummaries, extraction.newFiles, extraction.deletedFiles, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, diagram, prFilesUrl);
         core.info("Posting comment...");
         await (0, comment_1.postComment)(token, body);
         core.info("Done.");
