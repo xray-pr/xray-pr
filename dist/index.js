@@ -36022,7 +36022,7 @@ function composeComment(classification, symbols, fileSummaries, newFiles, delete
         }
         sections.push("");
     }
-    sections.push("<sub>[xray](https://github.com/kasrakhosravi/xray) — see through AI slop</sub>");
+    sections.push("<sub>[xray](https://github.com/kasrakhosravi/xray) — see through AI slop with deterministic architecture PR diff reviews</sub>");
     return sections.join("\n");
 }
 async function postComment(token, body) {

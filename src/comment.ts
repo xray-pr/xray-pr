@@ -283,7 +283,7 @@ export function composeComment(
   }
 
   sections.push(
-    "<sub>[xray](https://github.com/kasrakhosravi/xray) — see through AI slop</sub>"
+    "<sub>[xray](https://github.com/kasrakhosravi/xray) — see through AI slop with deterministic architecture PR diff reviews</sub>"
   );
 
   return sections.join("\n");
