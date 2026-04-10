@@ -1,4 +1,4 @@
-name: "xray"
+name: "xray-pr"
 description: "Deterministic architecture diffs for pull requests"
 author: "kasrakhosravi"
 
