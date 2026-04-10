@@ -35946,6 +35946,8 @@ function composeComment(classification, symbols, fileSummaries, newFiles, delete
         sections.push("```");
         sections.push("");
     }
+    sections.push("🔴 concurrency changes (review first) · 🟠 error path changes · 🟢 new files · 🔵 modified files");
+    sections.push("");
     sections.push("<sub>[xray](https://github.com/kasrakhosravi/xray) — see through AI slop</sub>");
     return sections.join("\n");
 }
