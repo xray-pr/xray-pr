@@ -1,0 +1,34 @@
+name: "xray"
+description: "Deterministic architecture diffs for pull requests"
+author: "kasrakhosravi"
+
+branding:
+  icon: "search"
+  color: "gray-dark"
+
+inputs:
+  github_token:
+    description: "GitHub token for posting PR comments"
+    required: true
+  anthropic_api_key:
+    description: "Anthropic API key (for diagram generation only)"
+    required: false
+  base_ref:
+    description: "Base ref to diff against (defaults to PR base)"
+    required: false
+  languages:
+    description: "Comma-separated language list, or 'auto' to detect"
+    required: false
+    default: "auto"
+  diagram:
+    description: "Generate AI-powered Mermaid diagram (set 'false' to skip)"
+    required: false
+    default: "true"
+  min_lines:
+    description: "Skip PRs with fewer added lines than this"
+    required: false
+    default: "50"
+
+runs:
+  using: "node20"
+  main: "dist/index.js"

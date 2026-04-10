@@ -1,0 +1,13 @@
+{
+  "extensions": [".go"],
+  "doc_extensions": [],
+  "test_file_pattern": "_test\\.go$",
+  "symbols": {
+    "types": "^[+-].*type\\s+(\\w+)\\s+(interface|struct)\\s*\\{",
+    "functions": "^[+-].*func\\s+(?:\\(\\w+\\s+\\*?\\w+\\)\\s+)?(\\w+)\\(",
+    "errors": "^[+-].*(Err[A-Z]\\w+|=\\s*errors\\.New|=\\s*fmt\\.Errorf)",
+    "tests": "^[+-].*(func\\s+Test\\w+|t\\.Run\\()",
+    "config": "^[+-].*type\\s+(\\w*Config\\w*)\\s+struct",
+    "concurrency": "^[+-].*(\\bgo\\s+func\\b|\\bgo\\s+\\w+\\.\\w+|sync\\.(Mutex|RWMutex|WaitGroup|Once)|make\\(chan\\s)"
+  }
+}
