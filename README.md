@@ -4,6 +4,18 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub release](https://img.shields.io/github/v/tag/kasrakhosravi/xray?label=version)](https://github.com/kasrakhosravi/xray/releases)
 
+![Go](https://img.shields.io/badge/Go-00ADD8?logo=go&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)
+![Java](https://img.shields.io/badge/Java-ED8B00?logo=openjdk&logoColor=white)
+![Solidity](https://img.shields.io/badge/Solidity-363636?logo=solidity&logoColor=white)
+![C#](https://img.shields.io/badge/C%23-239120?logo=csharp&logoColor=white)
+![Ruby](https://img.shields.io/badge/Ruby-CC342D?logo=ruby&logoColor=white)
+![Swift](https://img.shields.io/badge/Swift-FA7343?logo=swift&logoColor=white)
+![Kotlin](https://img.shields.io/badge/Kotlin-7F52FF?logo=kotlin&logoColor=white)
+![PHP](https://img.shields.io/badge/PHP-777BB4?logo=php&logoColor=white)
+
 The bottleneck of software isn't writing code anymore — it's reviewing it. AI generates 3,600-line PRs in minutes, but a human still needs hours to understand what changed, where the risk is, and what to focus on.
 
 xray fixes this. It extracts facts from the diff deterministically (git + regex), then renders them as a risk-colored architecture diagram. No opinions, no scores — just a visual map of what changed and what needs attention.
@@ -98,24 +110,6 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
-
-## Inputs
-
-| Input | Required | Description |
-|-------|----------|-------------|
-| `github_token` | Yes | GitHub token |
-| `anthropic_api_key` | No | Anthropic API key |
-| `openai_api_key` | No | OpenAI API key |
-| `openrouter_api_key` | No | OpenRouter API key |
-| `model` | No | Model override |
-| `diagram` | No | `false` to skip AI diagram |
-| `min_lines` | No | Skip small PRs (default: 50) |
-| `languages` | No | `auto` or comma-separated |
-| `base_ref` | No | Branch to diff against |
-
-## Languages
-
-Go · TypeScript · Python · Rust · Java · Solidity · C# · Ruby · Swift · Kotlin · PHP
 
 Adding a language = one JSON file in `src/patterns/`.
 
