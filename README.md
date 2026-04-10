@@ -10,18 +10,44 @@ xray fixes this. It extracts facts from the diff deterministically (git + regex)
 
 ## Output
 
-Every PR gets a comment with:
+Every PR gets a comment like this:
 
-- **One-line summary** — what this PR does
-- **Architecture diagram** — files as nodes, risk color-coded, dependency arrows, warning badges on risky changes
-- **File table** — sorted by risk, linked to the diff
+---
 
+**Rewrites memory store locking and adds block/receipt validation directives**
+
+```mermaid
+graph TD
+    A["memory.go +790/-533"]:::red
+    B["subscription.go +51/-23"]:::red
+    C["handlers.go +29/-3"]:::blue
+    D["data_fetcher.go +71/-205"]:::orange
+
+    r1["⚠ RWMutex rewrite"]:::risk -.-> A
+    r2["⚠ watchdog goroutine"]:::risk -.-> A
+    r3["⚠ WaitGroup + channels"]:::risk -.-> B
+
+    C -->|"calls"| A
+    D -->|"fetches"| A
+    A -->|"notifies"| B
+
+    classDef red fill:#f8d7da,stroke:#dc3545,stroke-width:2px
+    classDef orange fill:#fff3cd,stroke:#ffc107,stroke-width:2px
+    classDef blue fill:#cce5ff,stroke:#0366d6,stroke-width:2px
+    classDef risk fill:#ff6b6b,stroke:#c92a2a,color:#fff,font-size:11px
 ```
-🔴 concurrency changes (review first)
-🟠 error path changes
-🟢 new files
-🔵 modified
-```
+
+| | File | Lines | Key changes | Risk |
+|:---:|:---|:---:|:---|:---|
+| 🔴 | memory.go | `+790/-533` | `readIngestionState`, `watchdog`, ... | ⚠ RWMutex, +5 primitives |
+| 🔴 | subscription.go | `+51/-23` | — | ⚠ WaitGroup, channels |
+| 🟠 | data_fetcher.go | `+71/-205` | `errorToLabel`, `enrichReceipts` | ⚠ error path changes |
+| 🔵 | handlers.go | `+29/-3` | — | |
+| | _6 test files_ | `+762` | | |
+
+🔴 concurrency (review first) · 🟠 error paths · 🔵 modified
+
+---
 
 ## Usage
 
