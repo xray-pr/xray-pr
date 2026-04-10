@@ -51,8 +51,6 @@ graph TD
 
 ## Usage
 
-### Anthropic
-
 ```yaml
 name: xray
 on:
@@ -76,7 +74,12 @@ jobs:
       - uses: kasrakhosravi/xray@v0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Pick one provider:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          # openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          # model: gpt-4-turbo        # optional: override default model
+          # diagram: "false"           # optional: deterministic only, no AI, $0
 
   xray-on-command:
     if: |
@@ -94,43 +97,6 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-```
-
-### OpenAI
-
-```yaml
-- uses: kasrakhosravi/xray@v0
-  with:
-    github_token: ${{ secrets.GITHUB_TOKEN }}
-    openai_api_key: ${{ secrets.OPENAI_API_KEY }}
-```
-
-### OpenRouter
-
-```yaml
-- uses: kasrakhosravi/xray@v0
-  with:
-    github_token: ${{ secrets.GITHUB_TOKEN }}
-    openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
-```
-
-### Custom model
-
-```yaml
-- uses: kasrakhosravi/xray@v0
-  with:
-    github_token: ${{ secrets.GITHUB_TOKEN }}
-    openai_api_key: ${{ secrets.OPENAI_API_KEY }}
-    model: gpt-4-turbo
-```
-
-### Deterministic only (no AI, $0)
-
-```yaml
-- uses: kasrakhosravi/xray@v0
-  with:
-    github_token: ${{ secrets.GITHUB_TOKEN }}
-    diagram: "false"
 ```
 
 ## Inputs
