@@ -36669,7 +36669,7 @@ function createProvider(config) {
         case "openai":
             return new OpenAIProvider(config.apiKey, config.model, "https://api.openai.com/v1");
         case "openrouter":
-            return new AnthropicProvider(config.apiKey, config.model, "https://openrouter.ai/api/v1");
+            return new AnthropicProvider(config.apiKey, config.model, "https://openrouter.ai/api");
     }
 }
 

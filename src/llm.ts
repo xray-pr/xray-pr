@@ -118,7 +118,7 @@ export function createProvider(config: LLMConfig): LLMProvider {
       return new AnthropicProvider(
         config.apiKey,
         config.model,
-        "https://openrouter.ai/api/v1"
+        "https://openrouter.ai/api"
       );
   }
 }
