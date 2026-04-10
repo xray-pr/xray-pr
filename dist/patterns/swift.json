@@ -1,0 +1,13 @@
+{
+  "extensions": [".swift"],
+  "doc_extensions": [],
+  "test_file_pattern": "(Test|Tests)\\.swift$",
+  "symbols": {
+    "types": "^[+-].*(public\\s+|internal\\s+|private\\s+|open\\s+)?(final\\s+)?(class|struct|enum|protocol|actor)\\s+(\\w+)",
+    "functions": "^[+-].*(public\\s+|internal\\s+|private\\s+|open\\s+)?(static\\s+|class\\s+)?(func)\\s+(\\w+)",
+    "errors": "^[+-].*(enum\\s+\\w*Error\\w*|throw\\s+|catch\\s+\\{)",
+    "tests": "^[+-].*func\\s+test\\w+",
+    "config": "^[+-].*(struct|class)\\s+\\w*(Config|Configuration|Settings)\\w*",
+    "concurrency": "^[+-].*(\\bactor\\s|async\\s+func|await\\s|Task\\s*\\{|Task\\.detached|@MainActor|DispatchQueue|NSLock|os_unfair_lock)"
+  }
+}

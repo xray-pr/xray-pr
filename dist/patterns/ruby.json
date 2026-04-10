@@ -1,0 +1,13 @@
+{
+  "extensions": [".rb"],
+  "doc_extensions": [],
+  "test_file_pattern": "(test_.*|_test|_spec)\\.rb$",
+  "symbols": {
+    "types": "^[+-].*\\b(class|module)\\s+(\\w+)",
+    "functions": "^[+-].*\\bdef\\s+(self\\.)?(\\w+[!?]?)",
+    "errors": "^[+-].*(class\\s+\\w*Error\\w*|raise\\s+|rescue\\s+)",
+    "tests": "^[+-].*(def\\s+test_|describe\\s|context\\s|it\\s+['\"]|RSpec\\.describe)",
+    "config": "^[+-].*class\\s+\\w*(Config|Configuration)\\w*",
+    "concurrency": "^[+-].*(Thread\\.new|Mutex\\.new|ConditionVariable|Queue\\.new|Fiber\\.new|Ractor\\.new|async\\s+do)"
+  }
+}
