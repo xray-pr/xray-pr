@@ -92,6 +92,7 @@ async function run(): Promise<void> {
         diagram = await generateDiagram(
           anthropicKey,
           extraction.fileSummaries,
+          extraction.symbols,
           extraction.changedFiles.length,
           extraction.linesAdded,
           extraction.linesRemoved
