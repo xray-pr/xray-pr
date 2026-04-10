@@ -1,17 +1,24 @@
-import { LLMClient } from "./llm";
+import Anthropic from "@anthropic-ai/sdk";
 import { FileSummary, Symbol } from "./extract";
 
 function sanitize(name: string): string {
   return name.replace(/[(){}[\]<>"]/g, "").trim();
 }
 
+function createClient(apiKey: string, baseUrl?: string): Anthropic {
+  const opts: { apiKey: string; baseURL?: string } = { apiKey };
+  if (baseUrl) opts.baseURL = baseUrl;
+  return new Anthropic(opts);
+}
+
 export async function generateSummaryLine(
-  llm: LLMClient,
+  apiKey: string,
   fileSummaries: FileSummary[],
   allSymbols: Symbol[],
   filesChanged: number,
   linesAdded: number,
-  linesRemoved: number
+  linesRemoved: number,
+  baseUrl?: string
 ): Promise<string> {
   const nonTestSymbols = allSymbols.filter(
     (s) => !/^(Test|Benchmark|test_|describe|it\()/i.test(s.name)
@@ -25,25 +32,38 @@ export async function generateSummaryLine(
     .map((f) => f.file.split("/").pop())
     .join(", ");
 
-  const prompt = `Summarize this pull request in ONE short sentence (max 15 words). Be specific about what changed, not generic. No filler words.
+  const client = createClient(apiKey, baseUrl);
+
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 100,
+    messages: [
+      {
+        role: "user",
+        content: `Summarize this pull request in ONE short sentence (max 15 words). Be specific about what changed, not generic. No filler words.
 
 Files: ${files}
 Key symbols added: ${added.join(", ")}
 ${filesChanged} files, +${linesAdded}/-${linesRemoved}
 
-Output ONLY the sentence, nothing else.`;
+Output ONLY the sentence, nothing else.`,
+      },
+    ],
+  });
 
-  const text = await llm.chat(prompt, 100);
+  const text =
+    response.content[0].type === "text" ? response.content[0].text : "";
   return text.trim();
 }
 
 export async function generateDiagram(
-  llm: LLMClient,
+  apiKey: string,
   fileSummaries: FileSummary[],
   allSymbols: Symbol[],
   filesChanged: number,
   linesAdded: number,
-  linesRemoved: number
+  linesRemoved: number,
+  baseUrl?: string
 ): Promise<string | null> {
   const relevantFiles = fileSummaries.filter(
     (f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 20)
@@ -87,7 +107,15 @@ export async function generateDiagram(
     };
   });
 
-  const prompt = `Generate a Mermaid diagram for a pull request code review.
+  const client = createClient(apiKey, baseUrl);
+
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 2048,
+    messages: [
+      {
+        role: "user",
+        content: `Generate a Mermaid diagram for a pull request code review.
 
 STRUCTURE — two types of nodes:
 1. FILE NODES — one per file, labeled with just "filename +N/-N"
@@ -123,9 +151,13 @@ CRITICAL SYNTAX RULES:
 Files and their data:
 ${JSON.stringify(payload, null, 2)}
 
-Output ONLY the mermaid code. No explanation.`;
+Output ONLY the mermaid code. No explanation.`,
+      },
+    ],
+  });
 
-  const text = await llm.chat(prompt, 2048);
+  const text =
+    response.content[0].type === "text" ? response.content[0].text : "";
 
   const mermaidMatch = text.match(/```(?:mermaid)?\s*\n([\s\S]*?)```/);
   if (mermaidMatch) {

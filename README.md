@@ -68,15 +68,11 @@ jobs:
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `github_token` | Yes | — | GitHub token |
-| `anthropic_api_key` | No | — | Anthropic API key (direct) |
-| `openrouter_api_key` | No | — | OpenRouter API key (access any model) |
-| `model` | No | per provider | Model name (e.g. `claude-sonnet-4-20250514`, `anthropic/claude-sonnet-4-20250514`) |
+| `anthropic_api_key` | No | — | For summary + diagram |
 | `base_ref` | No | PR base | Branch to diff against |
 | `languages` | No | `auto` | Comma-separated, or `auto` |
 | `diagram` | No | `true` | `false` for deterministic-only mode |
 | `min_lines` | No | `50` | Skip small PRs |
-
-Provide one of `anthropic_api_key` or `openrouter_api_key` for AI features. Without either, xray runs in deterministic-only mode (no summary/diagram).
 
 ## Language support
 
