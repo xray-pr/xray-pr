@@ -35949,33 +35949,56 @@ function composeComment(classification, symbols, fileSummaries, newFiles, delete
     const nonTestFiles = fileSummaries.filter((f) => !f.isTest);
     const relevantFiles = nonTestFiles.filter((f) => f.symbols.length > 0 || f.linesAdded > 20);
     if (relevantFiles.length > 0) {
-        sections.push("| | File | Lines | Key changes |");
-        sections.push("|---|---|---|---|");
+        sections.push("| | File | Lines | Key changes | Risk |");
+        sections.push("|---|---|---|---|---|");
         for (const f of relevantFiles) {
             const hasConcurrency = f.symbols.some((s) => s.kind === "concurrency");
             const hasErrorChanges = f.symbols.some((s) => s.kind === "errors");
             let icon = "🔵";
-            if (hasConcurrency)
+            let risk = "—";
+            if (hasConcurrency && hasErrorChanges) {
                 icon = "🔴";
-            else if (hasErrorChanges)
+                const concCount = f.symbols.filter((s) => s.kind === "concurrency").length;
+                const errCount = f.symbols.filter((s) => s.kind === "errors").length;
+                risk = `${concCount} concurrency, ${errCount} error paths`;
+            }
+            else if (hasConcurrency) {
+                icon = "🔴";
+                const concCount = f.symbols.filter((s) => s.kind === "concurrency").length;
+                const concNames = f.symbols
+                    .filter((s) => s.kind === "concurrency" && s.change === "added" && !isGenericConcurrency(s))
+                    .slice(0, 2)
+                    .map((s) => s.name);
+                const genericCount = f.symbols.filter((s) => s.kind === "concurrency" && isGenericConcurrency(s)).length;
+                const parts = [...concNames];
+                if (genericCount > 0)
+                    parts.push(`+${genericCount} primitives`);
+                risk = parts.length > 0 ? parts.join(", ") : `${concCount} concurrency`;
+            }
+            else if (hasErrorChanges) {
                 icon = "🟠";
-            else if (f.isNew)
+                const errNames = f.symbols
+                    .filter((s) => s.kind === "errors" && s.change === "added")
+                    .slice(0, 2)
+                    .map((s) => s.name);
+                risk = errNames.length > 0 ? errNames.join(", ") : "error path changes";
+            }
+            else if (f.isNew) {
                 icon = "🟢";
-            const nonTestNonGeneric = f.symbols.filter((s) => !isTestSymbol(s) && !isGenericConcurrency(s) && s.change === "added");
+                risk = "new file";
+            }
+            const nonTestNonGeneric = f.symbols.filter((s) => !isTestSymbol(s) && !isGenericConcurrency(s) && s.kind !== "concurrency" && s.kind !== "errors" && s.change === "added");
             const keyNames = nonTestNonGeneric.slice(0, 3).map((s) => s.name);
-            const concCount = f.symbols.filter((s) => s.kind === "concurrency").length;
-            const parts = [...keyNames];
-            if (concCount > 0)
-                parts.push(`${concCount} concurrency`);
             if (keyNames.length < nonTestNonGeneric.length)
-                parts.push("...");
+                keyNames.push("...");
             const shortFile = f.file.split("/").pop() || f.file;
-            sections.push(`| ${icon} | ${shortFile} | +${f.linesAdded}/-${f.linesRemoved} | ${parts.join(", ") || "—"} |`);
+            const fileLink = `[${shortFile}](${f.file})`;
+            sections.push(`| ${icon} | ${fileLink} | +${f.linesAdded}/-${f.linesRemoved} | ${keyNames.join(", ") || "—"} | ${risk} |`);
         }
         const testFiles = fileSummaries.filter((f) => f.isTest);
         if (testFiles.length > 0) {
             const testLines = testFiles.reduce((sum, f) => sum + f.linesAdded, 0);
-            sections.push(`| | ${testFiles.length} test files | +${testLines} | |`);
+            sections.push(`| | ${testFiles.length} test files | +${testLines} | | |`);
         }
         sections.push("");
     }
