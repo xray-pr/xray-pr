@@ -182,23 +182,45 @@ export function composeComment(
   }
 
   const nonTestFiles = fileSummaries.filter((f) => !f.isTest);
-  const hasConcurrency = nonTestFiles.some((f) =>
-    f.symbols.some((s) => s.kind === "concurrency")
+  const relevantFiles = nonTestFiles.filter(
+    (f) => f.symbols.length > 0 || f.linesAdded > 20
   );
-  const hasErrors = nonTestFiles.some((f) =>
-    f.symbols.some((s) => s.kind === "errors")
-  );
-  const hasNewFiles = newFiles.length > 0;
-  const hasModified = nonTestFiles.some((f) => !f.isNew);
 
-  const legendParts: string[] = [];
-  if (hasConcurrency) legendParts.push("🔴 concurrency (review first)");
-  if (hasErrors) legendParts.push("🟠 error paths");
-  if (hasNewFiles) legendParts.push("🟢 new files");
-  if (hasModified) legendParts.push("🔵 modified");
+  if (relevantFiles.length > 0) {
+    sections.push("| | File | Lines | Key changes |");
+    sections.push("|---|---|---|---|");
 
-  if (legendParts.length > 0) {
-    sections.push(legendParts.join(" · "));
+    for (const f of relevantFiles) {
+      const hasConcurrency = f.symbols.some((s) => s.kind === "concurrency");
+      const hasErrorChanges = f.symbols.some((s) => s.kind === "errors");
+
+      let icon = "🔵";
+      if (hasConcurrency) icon = "🔴";
+      else if (hasErrorChanges) icon = "🟠";
+      else if (f.isNew) icon = "🟢";
+
+      const nonTestNonGeneric = f.symbols.filter(
+        (s) => !isTestSymbol(s) && !isGenericConcurrency(s) && s.change === "added"
+      );
+      const keyNames = nonTestNonGeneric.slice(0, 3).map((s) => s.name);
+      const concCount = f.symbols.filter((s) => s.kind === "concurrency").length;
+
+      const parts: string[] = [...keyNames];
+      if (concCount > 0) parts.push(`${concCount} concurrency`);
+      if (keyNames.length < nonTestNonGeneric.length) parts.push("...");
+
+      const shortFile = f.file.split("/").pop() || f.file;
+      sections.push(
+        `| ${icon} | ${shortFile} | +${f.linesAdded}/-${f.linesRemoved} | ${parts.join(", ") || "—"} |`
+      );
+    }
+
+    const testFiles = fileSummaries.filter((f) => f.isTest);
+    if (testFiles.length > 0) {
+      const testLines = testFiles.reduce((sum, f) => sum + f.linesAdded, 0);
+      sections.push(`| | ${testFiles.length} test files | +${testLines} | |`);
+    }
+
     sections.push("");
   }
 

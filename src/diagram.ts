@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { FileSummary, Symbol } from "./extract";
 
 function sanitize(name: string): string {
-  return name.replace(/[(){}[\]<>]/g, "").trim();
+  return name.replace(/[(){}[\]<>"]/g, "").trim();
 }
 
 export async function generateDiagram(
@@ -28,9 +28,20 @@ export async function generateDiagram(
   const payload = relevantFiles.map((f) => {
     const fileSymbols = nonTestSymbols.filter((s) => s.file === f.file);
     const added = fileSymbols.filter((s) => s.change === "added");
-    const removed = fileSymbols.filter((s) => s.change === "removed");
     const hasConcurrency = fileSymbols.some((s) => s.kind === "concurrency");
     const hasErrors = fileSymbols.some((s) => s.kind === "errors");
+
+    const riskItems: string[] = [];
+    for (const s of added) {
+      if (s.kind === "concurrency" || s.kind === "errors") {
+        riskItems.push(sanitize(s.name));
+      }
+    }
+
+    const keySymbols = added
+      .filter((s) => s.kind !== "concurrency" && s.kind !== "errors" && s.kind !== "tests")
+      .slice(0, 5)
+      .map((s) => `${sanitize(s.name)} - ${s.kind}`);
 
     return {
       file: f.file,
@@ -39,8 +50,8 @@ export async function generateDiagram(
       is_new: f.isNew,
       has_concurrency: hasConcurrency,
       has_error_changes: hasErrors,
-      added_symbols: added.map((s) => `${sanitize(s.name)} - ${s.kind}`),
-      removed_symbols: removed.map((s) => `${sanitize(s.name)} - ${s.kind}`),
+      risk_items: riskItems,
+      key_symbols: keySymbols,
     };
   });
 
@@ -52,34 +63,43 @@ export async function generateDiagram(
     messages: [
       {
         role: "user",
-        content: `You are generating an architecture diagram for a pull request code review. The reviewer is busy and needs to understand the change at a glance.
+        content: `Generate a Mermaid diagram for a pull request code review.
 
-Generate a Mermaid flowchart showing the architecture of this PR's changes.
+STRUCTURE — two types of nodes:
+1. FILE NODES — one per file, labeled with just "filename +N/-N"
+2. RISK NODES — small warning badges that branch off from file nodes, showing specific risky changes
 
-Requirements:
-- Use graph TD (top-down) layout
-- Each node represents a FILE with a rich label showing:
-  - Short filename (not full path)
-  - Lines changed: +N/-N
-  - Key symbols added/modified (show top 3-4, then "..." if more)
-- Color-code nodes by RISK level:
-  - RED (fill:#f8d7da,stroke:#dc3545) — files with has_concurrency=true (goroutines, mutexes, channels — highest review priority)
-  - ORANGE (fill:#fff3cd,stroke:#ffc107) — files with has_error_changes=true (new error paths)
-  - GREEN (fill:#d4edda,stroke:#28a745) — new files (is_new=true, no concurrency/error risk)
-  - BLUE (fill:#cce5ff,stroke:#0366d6) — modified files (default, lowest risk)
-- Draw arrows showing data/dependency flow between files based on the symbols
-- Label arrows with the relationship (e.g., "calls", "implements", "configures")
-- If a file has both concurrency and errors, use RED (concurrency takes priority)
-- Maximum 10 nodes. Group very small files if needed.
-- CRITICAL: All node labels MUST use quoted strings: A["label text here"] — never unquoted brackets
-- CRITICAL: Escape special characters in labels — no parentheses (), no angle brackets <>, no curly braces {} inside node labels. Replace them with spaces or remove them.
-- Make it detailed enough that a reviewer can understand the PR without reading any code
-- Output ONLY the mermaid code, no explanation
+LAYOUT:
+- Use graph TD
+- File nodes are the main flow: show dependency/call direction between files with labeled arrows
+- Risk nodes attach to their parent file with dotted arrows, positioned to the side
+- Each risk_item from the data becomes its own small risk node with a warning icon
 
-PR summary: ${filesChanged} files changed, +${linesAdded}/-${linesRemoved}
+STYLING:
+- File nodes with has_concurrency=true: use class "red" 
+- File nodes with has_error_changes=true but no concurrency: use class "orange"
+- New files with no risk: use class "green"
+- Modified files with no risk: use class "blue"
+- All risk nodes: use class "risk"
 
-Files and their symbols:
-${JSON.stringify(payload, null, 2)}`,
+CLASS DEFINITIONS — include these exactly:
+classDef red fill:#f8d7da,stroke:#dc3545,stroke-width:2px
+classDef orange fill:#fff3cd,stroke:#ffc107,stroke-width:2px
+classDef green fill:#d4edda,stroke:#28a745,stroke-width:2px
+classDef blue fill:#cce5ff,stroke:#0366d6,stroke-width:2px
+classDef risk fill:#ff6b6b,stroke:#c92a2a,color:#fff,font-size:11px,stroke-width:1px
+
+CRITICAL SYNTAX RULES:
+- ALL node labels MUST use quoted strings: A["label here"]
+- NO parentheses, braces, or angle brackets inside quotes
+- Risk node labels: use format r1["warning text"]
+- Keep file node labels short: just filename and +N/-N
+- Dotted arrows from risk to file: r1 -.-> A
+
+Files and their data:
+${JSON.stringify(payload, null, 2)}
+
+Output ONLY the mermaid code. No explanation.`,
       },
     ],
   });

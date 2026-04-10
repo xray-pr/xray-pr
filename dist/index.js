@@ -35947,21 +35947,36 @@ function composeComment(classification, symbols, fileSummaries, newFiles, delete
         sections.push("");
     }
     const nonTestFiles = fileSummaries.filter((f) => !f.isTest);
-    const hasConcurrency = nonTestFiles.some((f) => f.symbols.some((s) => s.kind === "concurrency"));
-    const hasErrors = nonTestFiles.some((f) => f.symbols.some((s) => s.kind === "errors"));
-    const hasNewFiles = newFiles.length > 0;
-    const hasModified = nonTestFiles.some((f) => !f.isNew);
-    const legendParts = [];
-    if (hasConcurrency)
-        legendParts.push("🔴 concurrency (review first)");
-    if (hasErrors)
-        legendParts.push("🟠 error paths");
-    if (hasNewFiles)
-        legendParts.push("🟢 new files");
-    if (hasModified)
-        legendParts.push("🔵 modified");
-    if (legendParts.length > 0) {
-        sections.push(legendParts.join(" · "));
+    const relevantFiles = nonTestFiles.filter((f) => f.symbols.length > 0 || f.linesAdded > 20);
+    if (relevantFiles.length > 0) {
+        sections.push("| | File | Lines | Key changes |");
+        sections.push("|---|---|---|---|");
+        for (const f of relevantFiles) {
+            const hasConcurrency = f.symbols.some((s) => s.kind === "concurrency");
+            const hasErrorChanges = f.symbols.some((s) => s.kind === "errors");
+            let icon = "🔵";
+            if (hasConcurrency)
+                icon = "🔴";
+            else if (hasErrorChanges)
+                icon = "🟠";
+            else if (f.isNew)
+                icon = "🟢";
+            const nonTestNonGeneric = f.symbols.filter((s) => !isTestSymbol(s) && !isGenericConcurrency(s) && s.change === "added");
+            const keyNames = nonTestNonGeneric.slice(0, 3).map((s) => s.name);
+            const concCount = f.symbols.filter((s) => s.kind === "concurrency").length;
+            const parts = [...keyNames];
+            if (concCount > 0)
+                parts.push(`${concCount} concurrency`);
+            if (keyNames.length < nonTestNonGeneric.length)
+                parts.push("...");
+            const shortFile = f.file.split("/").pop() || f.file;
+            sections.push(`| ${icon} | ${shortFile} | +${f.linesAdded}/-${f.linesRemoved} | ${parts.join(", ") || "—"} |`);
+        }
+        const testFiles = fileSummaries.filter((f) => f.isTest);
+        if (testFiles.length > 0) {
+            const testLines = testFiles.reduce((sum, f) => sum + f.linesAdded, 0);
+            sections.push(`| | ${testFiles.length} test files | +${testLines} | |`);
+        }
         sections.push("");
     }
     sections.push("<sub>[xray](https://github.com/kasrakhosravi/xray) — see through AI slop</sub>");
@@ -36013,7 +36028,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.generateDiagram = generateDiagram;
 const sdk_1 = __importDefault(__nccwpck_require__(121));
 function sanitize(name) {
-    return name.replace(/[(){}[\]<>]/g, "").trim();
+    return name.replace(/[(){}[\]<>"]/g, "").trim();
 }
 async function generateDiagram(apiKey, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved) {
     const relevantFiles = fileSummaries.filter((f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 20));
@@ -36024,9 +36039,18 @@ async function generateDiagram(apiKey, fileSummaries, allSymbols, filesChanged, 
     const payload = relevantFiles.map((f) => {
         const fileSymbols = nonTestSymbols.filter((s) => s.file === f.file);
         const added = fileSymbols.filter((s) => s.change === "added");
-        const removed = fileSymbols.filter((s) => s.change === "removed");
         const hasConcurrency = fileSymbols.some((s) => s.kind === "concurrency");
         const hasErrors = fileSymbols.some((s) => s.kind === "errors");
+        const riskItems = [];
+        for (const s of added) {
+            if (s.kind === "concurrency" || s.kind === "errors") {
+                riskItems.push(sanitize(s.name));
+            }
+        }
+        const keySymbols = added
+            .filter((s) => s.kind !== "concurrency" && s.kind !== "errors" && s.kind !== "tests")
+            .slice(0, 5)
+            .map((s) => `${sanitize(s.name)} - ${s.kind}`);
         return {
             file: f.file,
             lines_added: f.linesAdded,
@@ -36034,8 +36058,8 @@ async function generateDiagram(apiKey, fileSummaries, allSymbols, filesChanged, 
             is_new: f.isNew,
             has_concurrency: hasConcurrency,
             has_error_changes: hasErrors,
-            added_symbols: added.map((s) => `${sanitize(s.name)} - ${s.kind}`),
-            removed_symbols: removed.map((s) => `${sanitize(s.name)} - ${s.kind}`),
+            risk_items: riskItems,
+            key_symbols: keySymbols,
         };
     });
     const client = new sdk_1.default({ apiKey });
@@ -36045,34 +36069,43 @@ async function generateDiagram(apiKey, fileSummaries, allSymbols, filesChanged, 
         messages: [
             {
                 role: "user",
-                content: `You are generating an architecture diagram for a pull request code review. The reviewer is busy and needs to understand the change at a glance.
+                content: `Generate a Mermaid diagram for a pull request code review.
 
-Generate a Mermaid flowchart showing the architecture of this PR's changes.
+STRUCTURE — two types of nodes:
+1. FILE NODES — one per file, labeled with just "filename +N/-N"
+2. RISK NODES — small warning badges that branch off from file nodes, showing specific risky changes
 
-Requirements:
-- Use graph TD (top-down) layout
-- Each node represents a FILE with a rich label showing:
-  - Short filename (not full path)
-  - Lines changed: +N/-N
-  - Key symbols added/modified (show top 3-4, then "..." if more)
-- Color-code nodes by RISK level:
-  - RED (fill:#f8d7da,stroke:#dc3545) — files with has_concurrency=true (goroutines, mutexes, channels — highest review priority)
-  - ORANGE (fill:#fff3cd,stroke:#ffc107) — files with has_error_changes=true (new error paths)
-  - GREEN (fill:#d4edda,stroke:#28a745) — new files (is_new=true, no concurrency/error risk)
-  - BLUE (fill:#cce5ff,stroke:#0366d6) — modified files (default, lowest risk)
-- Draw arrows showing data/dependency flow between files based on the symbols
-- Label arrows with the relationship (e.g., "calls", "implements", "configures")
-- If a file has both concurrency and errors, use RED (concurrency takes priority)
-- Maximum 10 nodes. Group very small files if needed.
-- CRITICAL: All node labels MUST use quoted strings: A["label text here"] — never unquoted brackets
-- CRITICAL: Escape special characters in labels — no parentheses (), no angle brackets <>, no curly braces {} inside node labels. Replace them with spaces or remove them.
-- Make it detailed enough that a reviewer can understand the PR without reading any code
-- Output ONLY the mermaid code, no explanation
+LAYOUT:
+- Use graph TD
+- File nodes are the main flow: show dependency/call direction between files with labeled arrows
+- Risk nodes attach to their parent file with dotted arrows, positioned to the side
+- Each risk_item from the data becomes its own small risk node with a warning icon
 
-PR summary: ${filesChanged} files changed, +${linesAdded}/-${linesRemoved}
+STYLING:
+- File nodes with has_concurrency=true: use class "red" 
+- File nodes with has_error_changes=true but no concurrency: use class "orange"
+- New files with no risk: use class "green"
+- Modified files with no risk: use class "blue"
+- All risk nodes: use class "risk"
 
-Files and their symbols:
-${JSON.stringify(payload, null, 2)}`,
+CLASS DEFINITIONS — include these exactly:
+classDef red fill:#f8d7da,stroke:#dc3545,stroke-width:2px
+classDef orange fill:#fff3cd,stroke:#ffc107,stroke-width:2px
+classDef green fill:#d4edda,stroke:#28a745,stroke-width:2px
+classDef blue fill:#cce5ff,stroke:#0366d6,stroke-width:2px
+classDef risk fill:#ff6b6b,stroke:#c92a2a,color:#fff,font-size:11px,stroke-width:1px
+
+CRITICAL SYNTAX RULES:
+- ALL node labels MUST use quoted strings: A["label here"]
+- NO parentheses, braces, or angle brackets inside quotes
+- Risk node labels: use format r1["warning text"]
+- Keep file node labels short: just filename and +N/-N
+- Dotted arrows from risk to file: r1 -.-> A
+
+Files and their data:
+${JSON.stringify(payload, null, 2)}
+
+Output ONLY the mermaid code. No explanation.`,
             },
         ],
     });
