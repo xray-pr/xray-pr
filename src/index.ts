@@ -7,6 +7,7 @@ import { extract, LanguagePattern } from "./extract";
 import { classify } from "./classify";
 import { generateDiagram, generateSummaryLine } from "./diagram";
 import { composeComment, postComment } from "./comment";
+import { createLLMClient } from "./llm";
 
 async function resolveBaseRef(token: string): Promise<string> {
   const explicit = core.getInput("base_ref");
@@ -34,9 +35,13 @@ async function run(): Promise<void> {
   try {
     const token = core.getInput("github_token", { required: true });
     const anthropicKey = core.getInput("anthropic_api_key");
+    const openrouterKey = core.getInput("openrouter_api_key");
+    const model = core.getInput("model") || undefined;
     const languageFilter = core.getInput("languages") || "auto";
     const diagramEnabled = core.getInput("diagram") !== "false";
     const minLines = parseInt(core.getInput("min_lines") || "50", 10);
+
+    const llm = createLLMClient({ anthropicKey, openrouterKey, model });
 
     const baseRef = await resolveBaseRef(token);
 
@@ -87,12 +92,12 @@ async function run(): Promise<void> {
 
     let diagram: string | null = null;
     let summaryLine = "";
-    if (diagramEnabled && anthropicKey) {
+    if (diagramEnabled && llm) {
       core.info("Generating summary and diagram...");
       try {
         [summaryLine, diagram] = await Promise.all([
           generateSummaryLine(
-            anthropicKey,
+            llm,
             extraction.fileSummaries,
             extraction.symbols,
             extraction.changedFiles.length,
@@ -100,7 +105,7 @@ async function run(): Promise<void> {
             extraction.linesRemoved
           ),
           generateDiagram(
-            anthropicKey,
+            llm,
             extraction.fileSummaries,
             extraction.symbols,
             extraction.changedFiles.length,
@@ -117,9 +122,9 @@ async function run(): Promise<void> {
       } catch (err) {
         core.warning(`Generation failed: ${err}`);
       }
-    } else if (diagramEnabled && !anthropicKey) {
+    } else if (diagramEnabled && !llm) {
       core.warning(
-        "Diagram enabled but no anthropic_api_key provided. Skipping diagram."
+        "Diagram enabled but no LLM API key provided (set anthropic_api_key or openrouter_api_key). Skipping."
       );
     }
 
