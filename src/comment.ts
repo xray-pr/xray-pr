@@ -181,8 +181,27 @@ export function composeComment(
     sections.push("");
   }
 
-  sections.push("🔴 concurrency changes (review first) · 🟠 error path changes · 🟢 new files · 🔵 modified files");
-  sections.push("");
+  const nonTestFiles = fileSummaries.filter((f) => !f.isTest);
+  const hasConcurrency = nonTestFiles.some((f) =>
+    f.symbols.some((s) => s.kind === "concurrency")
+  );
+  const hasErrors = nonTestFiles.some((f) =>
+    f.symbols.some((s) => s.kind === "errors")
+  );
+  const hasNewFiles = newFiles.length > 0;
+  const hasModified = nonTestFiles.some((f) => !f.isNew);
+
+  const legendParts: string[] = [];
+  if (hasConcurrency) legendParts.push("🔴 concurrency (review first)");
+  if (hasErrors) legendParts.push("🟠 error paths");
+  if (hasNewFiles) legendParts.push("🟢 new files");
+  if (hasModified) legendParts.push("🔵 modified");
+
+  if (legendParts.length > 0) {
+    sections.push(legendParts.join(" · "));
+    sections.push("");
+  }
+
   sections.push(
     "<sub>[xray](https://github.com/kasrakhosravi/xray) — see through AI slop</sub>"
   );
