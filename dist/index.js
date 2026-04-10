@@ -35809,62 +35809,125 @@ const core = __importStar(__nccwpck_require__(7484));
 const github = __importStar(__nccwpck_require__(3228));
 const classify_1 = __nccwpck_require__(3813);
 const COMMENT_HEADER = "<!-- xray-arch-diff -->";
-function formatSymbols(symbols) {
-    const added = symbols.filter((s) => s.change === "added");
-    const removed = symbols.filter((s) => s.change === "removed");
+const GENERIC_SYMBOL_NAMES = new Set([
+    "go func", "go", "sync.Mutex", "sync.RWMutex", "sync.WaitGroup",
+    "sync.Once", "make(chan", "makeChan", "fmt.Errorf", "errors.New",
+]);
+function isTestSymbol(s) {
+    return /^(Test|Benchmark|test_|describe|it\(|setUp|tearDown)/i.test(s.name);
+}
+function isGenericConcurrency(s) {
+    if (s.kind !== "concurrency")
+        return false;
+    return GENERIC_SYMBOL_NAMES.has(s.name) ||
+        /^(go\s|sync\.|make\(chan)/.test(s.name);
+}
+function formatStructuralChanges(symbols, fileSummaries) {
+    const nonTestSymbols = symbols.filter((s) => !isTestSymbol(s));
+    const added = nonTestSymbols.filter((s) => s.change === "added");
+    const removed = nonTestSymbols.filter((s) => s.change === "removed");
     if (added.length === 0 && removed.length === 0) {
         return "_No structural symbol changes detected._";
     }
     const seen = new Set();
-    const modified = [];
-    const pureAdded = [];
-    const pureRemoved = [];
+    const namedAdded = [];
+    const namedModified = [];
+    const namedRemoved = [];
+    const concurrencyAdded = {};
+    const concurrencyRemoved = {};
     for (const s of added) {
+        if (isGenericConcurrency(s)) {
+            const key = s.name.replace(/\s+/g, " ").trim();
+            concurrencyAdded[key] = (concurrencyAdded[key] || 0) + 1;
+            continue;
+        }
         if (removed.some((r) => r.name === s.name && r.kind === s.kind)) {
             if (!seen.has(`${s.name}:${s.kind}`)) {
-                modified.push({ ...s, change: "added" });
+                namedModified.push(s);
                 seen.add(`${s.name}:${s.kind}`);
             }
         }
         else {
-            pureAdded.push(s);
+            if (!seen.has(`${s.name}:${s.kind}:added`)) {
+                namedAdded.push(s);
+                seen.add(`${s.name}:${s.kind}:added`);
+            }
         }
     }
     for (const s of removed) {
+        if (isGenericConcurrency(s)) {
+            const key = s.name.replace(/\s+/g, " ").trim();
+            concurrencyRemoved[key] = (concurrencyRemoved[key] || 0) + 1;
+            continue;
+        }
         if (!added.some((a) => a.name === s.name && a.kind === s.kind)) {
-            pureRemoved.push(s);
+            if (!seen.has(`${s.name}:${s.kind}:removed`)) {
+                namedRemoved.push(s);
+                seen.add(`${s.name}:${s.kind}:removed`);
+            }
         }
     }
     const lines = [];
-    for (const s of pureAdded) {
+    for (const s of namedAdded) {
         lines.push(`+ ${s.name.padEnd(35)} (new ${s.kind})`);
     }
-    for (const s of modified) {
+    for (const s of namedModified) {
         lines.push(`~ ${s.name.padEnd(35)} (modified ${s.kind})`);
     }
-    for (const s of pureRemoved) {
+    for (const s of namedRemoved) {
         lines.push(`- ${s.name.padEnd(35)} (removed ${s.kind})`);
+    }
+    const concAddedParts = [];
+    for (const [name, count] of Object.entries(concurrencyAdded)) {
+        concAddedParts.push(`${count}x ${name}`);
+    }
+    const concRemovedParts = [];
+    for (const [name, count] of Object.entries(concurrencyRemoved)) {
+        concRemovedParts.push(`${count}x ${name}`);
+    }
+    if (concAddedParts.length > 0) {
+        lines.push("");
+        lines.push(`+ concurrency: ${concAddedParts.join(", ")}`);
+    }
+    if (concRemovedParts.length > 0) {
+        lines.push(`- concurrency: ${concRemovedParts.join(", ")}`);
+    }
+    const testSymbols = symbols.filter((s) => isTestSymbol(s) && s.change === "added");
+    if (testSymbols.length > 0) {
+        lines.push("");
+        lines.push(`+ ${testSymbols.length} test functions added`);
     }
     return lines.join("\n");
 }
 function formatFileRanking(fileSummaries) {
-    const nonTest = fileSummaries.filter((f) => !f.isTest && f.symbols.length > 0);
+    const nonTest = fileSummaries.filter((f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 20));
     const testFiles = fileSummaries.filter((f) => f.isTest);
     if (nonTest.length === 0 && testFiles.length === 0)
         return "";
     const lines = [];
     let rank = 1;
     for (const f of nonTest) {
-        const kindParts = Object.entries(f.symbolsByKind)
-            .map(([k, v]) => `${v} ${k}`)
-            .join(", ");
+        const nonGenericSymbols = f.symbols.filter((s) => !isGenericConcurrency(s) && !isTestSymbol(s));
+        const concCount = f.symbols.filter((s) => s.kind === "concurrency").length;
+        const parts = [];
+        if (nonGenericSymbols.length > 0) {
+            const kindCounts = {};
+            for (const s of nonGenericSymbols) {
+                kindCounts[s.kind] = (kindCounts[s.kind] || 0) + 1;
+            }
+            parts.push(...Object.entries(kindCounts).map(([k, v]) => `${v} ${k}`));
+        }
+        if (concCount > 0) {
+            parts.push(`${concCount} concurrency`);
+        }
         const label = f.isNew ? " (new)" : "";
-        lines.push(`${String(rank).padStart(2)}. ${f.file}${label}  — +${f.linesAdded}/-${f.linesRemoved}, ${kindParts}`);
+        const detail = parts.length > 0 ? `, ${parts.join(", ")}` : "";
+        lines.push(`${String(rank).padStart(2)}. ${f.file}${label}  — +${f.linesAdded}/-${f.linesRemoved}${detail}`);
         rank++;
     }
     if (testFiles.length > 0) {
         const totalTestLines = testFiles.reduce((sum, f) => sum + f.linesAdded, 0);
-        lines.push(`${String(rank).padStart(2)}. ${testFiles.length} test file${testFiles.length > 1 ? "s" : ""}  — +${totalTestLines} lines (verify after reviewing above)`);
+        lines.push(`${String(rank).padStart(2)}. ${testFiles.length} test file${testFiles.length > 1 ? "s" : ""}  — +${totalTestLines} lines`);
     }
     return lines.join("\n");
 }
@@ -35903,7 +35966,7 @@ function composeComment(classification, symbols, fileSummaries, newFiles, delete
     }
     sections.push("### Structural changes");
     sections.push("```diff");
-    sections.push(formatSymbols(symbols));
+    sections.push(formatStructuralChanges(symbols, fileSummaries));
     sections.push("```");
     sections.push("");
     const fileRanking = formatFileRanking(fileSummaries);
@@ -35980,7 +36043,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.generateDiagram = generateDiagram;
 const sdk_1 = __importDefault(__nccwpck_require__(121));
 async function generateDiagram(apiKey, fileSummaries, filesChanged, linesAdded, linesRemoved) {
-    const relevantFiles = fileSummaries.filter((f) => !f.isTest && f.symbols.length > 0);
+    const relevantFiles = fileSummaries.filter((f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 20));
     if (relevantFiles.length === 0) {
         return null;
     }

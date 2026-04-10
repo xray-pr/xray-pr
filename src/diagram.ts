@@ -9,7 +9,7 @@ export async function generateDiagram(
   linesRemoved: number
 ): Promise<string | null> {
   const relevantFiles = fileSummaries.filter(
-    (f) => !f.isTest && f.symbols.length > 0
+    (f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 20)
   );
 
   if (relevantFiles.length === 0) {
