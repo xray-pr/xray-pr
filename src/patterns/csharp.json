@@ -1,0 +1,13 @@
+{
+  "extensions": [".cs"],
+  "doc_extensions": [],
+  "test_file_pattern": "(Test|Tests|Spec)\\.cs$",
+  "symbols": {
+    "types": "^[+-].*(public|internal|protected|private)?\\s*(abstract\\s+|static\\s+|sealed\\s+)?(class|interface|enum|struct|record)\\s+(\\w+)",
+    "functions": "^[+-].*(public|internal|protected|private)\\s+(static\\s+)?(async\\s+)?(Task|void|string|int|bool|var|\\w+)\\s+(\\w+)\\s*\\(",
+    "errors": "^[+-].*(class\\s+\\w*Exception\\w*|throw\\s+new|catch\\s*\\()",
+    "tests": "^[+-].*(\\[Test\\]|\\[Fact\\]|\\[Theory\\]|\\[TestMethod\\])",
+    "config": "^[+-].*(class|record)\\s+\\w*(Config|Options|Settings)\\w*",
+    "concurrency": "^[+-].*(async\\s+Task|await\\s|lock\\s*\\(|SemaphoreSlim|Mutex|Monitor\\.|Task\\.Run|Parallel\\.|ConcurrentDictionary|CancellationToken)"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "extensions": [".php"],
+  "doc_extensions": [],
+  "test_file_pattern": "(Test|Tests)\\.php$",
+  "symbols": {
+    "types": "^[+-].*(abstract\\s+|final\\s+)?(class|interface|enum|trait)\\s+(\\w+)",
+    "functions": "^[+-].*(public|protected|private)\\s+(static\\s+)?function\\s+(\\w+)",
+    "errors": "^[+-].*(class\\s+\\w*Exception\\w*|throw\\s+new|catch\\s*\\()",
+    "tests": "^[+-].*(public\\s+function\\s+test|\\s*@test|\\s*#\\[Test\\])",
+    "config": "^[+-].*(class)\\s+\\w*(Config|Configuration)\\w*",
+    "concurrency": "^[+-].*(Fiber\\s*::|parallel\\\\|pcntl_fork|proc_open)"
+  }
+}

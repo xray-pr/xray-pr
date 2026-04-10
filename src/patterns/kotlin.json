@@ -1,0 +1,13 @@
+{
+  "extensions": [".kt", ".kts"],
+  "doc_extensions": [],
+  "test_file_pattern": "(Test|Tests|Spec)\\.kt$",
+  "symbols": {
+    "types": "^[+-].*(public\\s+|internal\\s+|private\\s+|protected\\s+)?(abstract\\s+|data\\s+|sealed\\s+|value\\s+)?(class|interface|enum|object)\\s+(\\w+)",
+    "functions": "^[+-].*(public\\s+|internal\\s+|private\\s+|protected\\s+)?(suspend\\s+)?fun\\s+(\\w+)",
+    "errors": "^[+-].*(class\\s+\\w*Exception\\w*|throw\\s+|catch\\s*\\()",
+    "tests": "^[+-].*(\\s*@Test|\\s*@ParameterizedTest|fun\\s+`.*test)",
+    "config": "^[+-].*(data\\s+class|class)\\s+\\w*(Config|Properties|Settings)\\w*",
+    "concurrency": "^[+-].*(suspend\\s+fun|launch\\s*\\{|async\\s*\\{|withContext|Dispatchers\\.|Mutex|Channel|Flow|coroutineScope|GlobalScope)"
+  }
+}
