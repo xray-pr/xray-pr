@@ -176,9 +176,15 @@ export function composeComment(
   linesAdded: number,
   linesRemoved: number,
   diagram: string | null,
-  prFilesUrl: string
+  prFilesUrl: string,
+  summaryLine: string
 ): string {
   const sections: string[] = [COMMENT_HEADER];
+
+  if (summaryLine) {
+    sections.push(`**${summaryLine}**`);
+    sections.push("");
+  }
 
   if (diagram) {
     sections.push("```mermaid");

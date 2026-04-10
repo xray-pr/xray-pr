@@ -5,7 +5,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { extract, LanguagePattern } from "./extract";
 import { classify } from "./classify";
-import { generateDiagram } from "./diagram";
+import { generateDiagram, generateSummaryLine } from "./diagram";
 import { composeComment, postComment } from "./comment";
 
 async function resolveBaseRef(token: string): Promise<string> {
@@ -86,24 +86,36 @@ async function run(): Promise<void> {
     core.info(`Found ${extraction.symbols.length} symbol changes`);
 
     let diagram: string | null = null;
+    let summaryLine = "";
     if (diagramEnabled && anthropicKey) {
-      core.info("Generating diagram...");
+      core.info("Generating summary and diagram...");
       try {
-        diagram = await generateDiagram(
-          anthropicKey,
-          extraction.fileSummaries,
-          extraction.symbols,
-          extraction.changedFiles.length,
-          extraction.linesAdded,
-          extraction.linesRemoved
-        );
+        [summaryLine, diagram] = await Promise.all([
+          generateSummaryLine(
+            anthropicKey,
+            extraction.fileSummaries,
+            extraction.symbols,
+            extraction.changedFiles.length,
+            extraction.linesAdded,
+            extraction.linesRemoved
+          ),
+          generateDiagram(
+            anthropicKey,
+            extraction.fileSummaries,
+            extraction.symbols,
+            extraction.changedFiles.length,
+            extraction.linesAdded,
+            extraction.linesRemoved
+          ),
+        ]);
+        core.info(`Summary: ${summaryLine}`);
         if (diagram) {
           core.info("Diagram generated successfully");
         } else {
           core.info("No diagram generated (not enough symbols)");
         }
       } catch (err) {
-        core.warning(`Diagram generation failed: ${err}`);
+        core.warning(`Generation failed: ${err}`);
       }
     } else if (diagramEnabled && !anthropicKey) {
       core.warning(
@@ -129,7 +141,8 @@ async function run(): Promise<void> {
       extraction.linesAdded,
       extraction.linesRemoved,
       diagram,
-      prFilesUrl
+      prFilesUrl,
+      summaryLine
     );
 
     core.info("Posting comment...");

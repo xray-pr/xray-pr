@@ -5,6 +5,50 @@ function sanitize(name: string): string {
   return name.replace(/[(){}[\]<>"]/g, "").trim();
 }
 
+export async function generateSummaryLine(
+  apiKey: string,
+  fileSummaries: FileSummary[],
+  allSymbols: Symbol[],
+  filesChanged: number,
+  linesAdded: number,
+  linesRemoved: number
+): Promise<string> {
+  const nonTestSymbols = allSymbols.filter(
+    (s) => !/^(Test|Benchmark|test_|describe|it\()/i.test(s.name)
+  );
+  const added = nonTestSymbols
+    .filter((s) => s.change === "added")
+    .slice(0, 20)
+    .map((s) => `${sanitize(s.name)} (${s.kind})`);
+  const files = fileSummaries
+    .filter((f) => !f.isTest)
+    .map((f) => f.file.split("/").pop())
+    .join(", ");
+
+  const client = new Anthropic({ apiKey });
+
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 100,
+    messages: [
+      {
+        role: "user",
+        content: `Summarize this pull request in ONE short sentence (max 15 words). Be specific about what changed, not generic. No filler words.
+
+Files: ${files}
+Key symbols added: ${added.join(", ")}
+${filesChanged} files, +${linesAdded}/-${linesRemoved}
+
+Output ONLY the sentence, nothing else.`,
+      },
+    ],
+  });
+
+  const text =
+    response.content[0].type === "text" ? response.content[0].text : "";
+  return text.trim();
+}
+
 export async function generateDiagram(
   apiKey: string,
   fileSummaries: FileSummary[],

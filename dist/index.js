@@ -35942,8 +35942,12 @@ function formatFilesSummary(newFiles, deletedFiles, totalChanged) {
         parts.push(`**${deletedFiles.length}** deleted`);
     return parts.join(" · ");
 }
-function composeComment(classification, symbols, fileSummaries, newFiles, deletedFiles, totalFiles, linesAdded, linesRemoved, diagram, prFilesUrl) {
+function composeComment(classification, symbols, fileSummaries, newFiles, deletedFiles, totalFiles, linesAdded, linesRemoved, diagram, prFilesUrl, summaryLine) {
     const sections = [COMMENT_HEADER];
+    if (summaryLine) {
+        sections.push(`**${summaryLine}**`);
+        sections.push("");
+    }
     if (diagram) {
         sections.push("```mermaid");
         sections.push(diagram);
@@ -36068,10 +36072,41 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.generateSummaryLine = generateSummaryLine;
 exports.generateDiagram = generateDiagram;
 const sdk_1 = __importDefault(__nccwpck_require__(121));
 function sanitize(name) {
     return name.replace(/[(){}[\]<>"]/g, "").trim();
+}
+async function generateSummaryLine(apiKey, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved) {
+    const nonTestSymbols = allSymbols.filter((s) => !/^(Test|Benchmark|test_|describe|it\()/i.test(s.name));
+    const added = nonTestSymbols
+        .filter((s) => s.change === "added")
+        .slice(0, 20)
+        .map((s) => `${sanitize(s.name)} (${s.kind})`);
+    const files = fileSummaries
+        .filter((f) => !f.isTest)
+        .map((f) => f.file.split("/").pop())
+        .join(", ");
+    const client = new sdk_1.default({ apiKey });
+    const response = await client.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 100,
+        messages: [
+            {
+                role: "user",
+                content: `Summarize this pull request in ONE short sentence (max 15 words). Be specific about what changed, not generic. No filler words.
+
+Files: ${files}
+Key symbols added: ${added.join(", ")}
+${filesChanged} files, +${linesAdded}/-${linesRemoved}
+
+Output ONLY the sentence, nothing else.`,
+            },
+        ],
+    });
+    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    return text.trim();
 }
 async function generateDiagram(apiKey, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved) {
     const relevantFiles = fileSummaries.filter((f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 20));
@@ -36503,10 +36538,15 @@ async function run() {
         core.info(`Classification: logic=${classification.logic} tests=${classification.tests} types=${classification.types} docs=${classification.docs}`);
         core.info(`Found ${extraction.symbols.length} symbol changes`);
         let diagram = null;
+        let summaryLine = "";
         if (diagramEnabled && anthropicKey) {
-            core.info("Generating diagram...");
+            core.info("Generating summary and diagram...");
             try {
-                diagram = await (0, diagram_1.generateDiagram)(anthropicKey, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved);
+                [summaryLine, diagram] = await Promise.all([
+                    (0, diagram_1.generateSummaryLine)(anthropicKey, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved),
+                    (0, diagram_1.generateDiagram)(anthropicKey, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved),
+                ]);
+                core.info(`Summary: ${summaryLine}`);
                 if (diagram) {
                     core.info("Diagram generated successfully");
                 }
@@ -36515,7 +36555,7 @@ async function run() {
                 }
             }
             catch (err) {
-                core.warning(`Diagram generation failed: ${err}`);
+                core.warning(`Generation failed: ${err}`);
             }
         }
         else if (diagramEnabled && !anthropicKey) {
@@ -36528,7 +36568,7 @@ async function run() {
             ? `https://github.com/${repo.owner}/${repo.repo}/pull/${prNumber}/files`
             : "";
         core.info("Composing comment...");
-        const body = (0, comment_1.composeComment)(classification, extraction.symbols, extraction.fileSummaries, extraction.newFiles, extraction.deletedFiles, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, diagram, prFilesUrl);
+        const body = (0, comment_1.composeComment)(classification, extraction.symbols, extraction.fileSummaries, extraction.newFiles, extraction.deletedFiles, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, diagram, prFilesUrl, summaryLine);
         core.info("Posting comment...");
         await (0, comment_1.postComment)(token, body);
         core.info("Done.");
