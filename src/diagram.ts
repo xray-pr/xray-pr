@@ -25,12 +25,16 @@ export async function generateDiagram(
     const fileSymbols = nonTestSymbols.filter((s) => s.file === f.file);
     const added = fileSymbols.filter((s) => s.change === "added");
     const removed = fileSymbols.filter((s) => s.change === "removed");
+    const hasConcurrency = fileSymbols.some((s) => s.kind === "concurrency");
+    const hasErrors = fileSymbols.some((s) => s.kind === "errors");
 
     return {
       file: f.file,
       lines_added: f.linesAdded,
       lines_removed: f.linesRemoved,
       is_new: f.isNew,
+      has_concurrency: hasConcurrency,
+      has_error_changes: hasErrors,
       added_symbols: added.map((s) => `${s.name} (${s.kind})`),
       removed_symbols: removed.map((s) => `${s.name} (${s.kind})`),
     };
@@ -53,13 +57,15 @@ Requirements:
 - Each node represents a FILE with a rich label showing:
   - Short filename (not full path)
   - Lines changed: +N/-N
-  - Key symbols added/modified (abbreviated if many — show top 3-4, then "..." if more)
-- New files: style with fill:#d4edda,stroke:#28a745 (green)
-- Modified files: style with fill:#cce5ff,stroke:#0366d6 (blue)
-- Draw arrows showing data/dependency flow between files based on the symbols (e.g., a handler file calls a store file, a subscription manager uses a client)
-- Label arrows with the relationship when it's clear (e.g., "calls", "implements", "configures", "subscribes")
-- If there are error types, show them as a separate small node connected to where they originate
-- If there are concurrency primitives (goroutines, mutexes, channels), annotate the node with a ⚡ prefix
+  - Key symbols added/modified (show top 3-4, then "..." if more)
+- Color-code nodes by RISK level:
+  - RED (fill:#f8d7da,stroke:#dc3545) — files with has_concurrency=true (goroutines, mutexes, channels — highest review priority)
+  - ORANGE (fill:#fff3cd,stroke:#ffc107) — files with has_error_changes=true (new error paths)
+  - GREEN (fill:#d4edda,stroke:#28a745) — new files (is_new=true, no concurrency/error risk)
+  - BLUE (fill:#cce5ff,stroke:#0366d6) — modified files (default, lowest risk)
+- Draw arrows showing data/dependency flow between files based on the symbols
+- Label arrows with the relationship (e.g., "calls", "implements", "configures")
+- If a file has both concurrency and errors, use RED (concurrency takes priority)
 - Maximum 10 nodes. Group very small files if needed.
 - Make it detailed enough that a reviewer can understand the PR without reading any code
 - Output ONLY the mermaid code, no explanation
