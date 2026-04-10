@@ -57,8 +57,6 @@ graph TD
 | 🔵 | handlers.go | `+29/-3` | — | |
 | | _6 test files_ | `+762` | | |
 
-🔴 concurrency (review first) · 🟠 error paths · 🔵 modified
-
 ---
 
 ## Usage
