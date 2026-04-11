@@ -59,21 +59,31 @@ export async function generateDiagram(
     (s) => !/^(Test|Benchmark|test_|describe|it\()/i.test(s.name)
   );
 
+  const RISK_KINDS = new Set(["concurrency", "unsafe_ops", "errors", "http_handlers", "external_calls"]);
+
   const payload = relevantFiles.map((f) => {
     const fileSymbols = nonTestSymbols.filter((s) => s.file === f.file);
     const added = fileSymbols.filter((s) => s.change === "added");
     const hasConcurrency = fileSymbols.some((s) => s.kind === "concurrency");
+    const hasUnsafe = fileSymbols.some((s) => s.kind === "unsafe_ops");
     const hasErrors = fileSymbols.some((s) => s.kind === "errors");
+    const hasHttpHandlers = fileSymbols.some((s) => s.kind === "http_handlers");
+    const hasExternalCalls = fileSymbols.some((s) => s.kind === "external_calls");
 
     const riskItems: string[] = [];
+    const seenRisk = new Set<string>();
     for (const s of added) {
-      if (s.kind === "concurrency" || s.kind === "errors") {
-        riskItems.push(sanitize(s.name));
+      if (RISK_KINDS.has(s.kind)) {
+        const name = sanitize(s.name);
+        if (!seenRisk.has(name) && name.length > 1) {
+          riskItems.push(name);
+          seenRisk.add(name);
+        }
       }
     }
 
     const keySymbols = added
-      .filter((s) => s.kind !== "concurrency" && s.kind !== "errors" && s.kind !== "tests")
+      .filter((s) => !RISK_KINDS.has(s.kind) && s.kind !== "tests" && s.kind !== "context_lifecycle" && s.kind !== "resource_mgmt")
       .slice(0, 5)
       .map((s) => `${sanitize(s.name)} - ${s.kind}`);
 
@@ -83,8 +93,11 @@ export async function generateDiagram(
       lines_removed: f.linesRemoved,
       is_new: f.isNew,
       has_concurrency: hasConcurrency,
+      has_unsafe: hasUnsafe,
       has_error_changes: hasErrors,
-      risk_items: riskItems,
+      has_http_handlers: hasHttpHandlers,
+      has_external_calls: hasExternalCalls,
+      risk_items: riskItems.slice(0, 5),
       key_symbols: keySymbols,
     };
   });
@@ -102,12 +115,12 @@ LAYOUT:
 - Risk nodes attach to their parent file with dotted arrows, positioned to the side
 - Each risk_item from the data becomes its own small risk node with a warning icon
 
-STYLING:
-- File nodes with has_concurrency=true: use class "red" 
-- File nodes with has_error_changes=true but no concurrency: use class "orange"
-- New files with no risk: use class "green"
-- Modified files with no risk: use class "blue"
-- All risk nodes: use class "risk"
+STYLING (pick highest applicable):
+- RED: has_concurrency=true OR has_unsafe=true (highest risk)
+- ORANGE: has_error_changes=true OR has_http_handlers=true OR has_external_calls=true
+- GREEN: is_new=true with no red/orange flags
+- BLUE: everything else
+- All risk badge nodes: use class "risk"
 
 CLASS DEFINITIONS — include these exactly:
 classDef red fill:#f8d7da,stroke:#dc3545,stroke-width:2px

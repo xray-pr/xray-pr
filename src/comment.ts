@@ -12,17 +12,42 @@ function hashPath(filePath: string): string {
 
 const GENERIC_SYMBOL_NAMES = new Set([
   "go func", "go", "sync.Mutex", "sync.RWMutex", "sync.WaitGroup",
-  "sync.Once", "make(chan", "makeChan", "fmt.Errorf", "errors.New",
+  "sync.Once", "sync.Cond", "sync.Map", "make(chan", "makeChan",
+  "fmt.Errorf", "errors.New", "select",
+]);
+
+const HIGH_RISK_KINDS = new Set([
+  "concurrency", "unsafe_ops",
+]);
+
+const MEDIUM_RISK_KINDS = new Set([
+  "errors", "http_handlers", "external_calls",
+]);
+
+const INFO_KINDS = new Set([
+  "context_lifecycle", "resource_mgmt",
 ]);
 
 function isTestSymbol(s: Symbol): boolean {
   return /^(Test|Benchmark|test_|describe|it\(|setUp|tearDown)/i.test(s.name);
 }
 
+function isGenericSymbol(s: Symbol): boolean {
+  if (s.kind === "concurrency") {
+    return GENERIC_SYMBOL_NAMES.has(s.name) ||
+      /^(go\s|sync\.|make\(chan|select\s|<-\s*chan)/.test(s.name);
+  }
+  if (s.kind === "context_lifecycle") {
+    return /^(context\.|ctx\.)/.test(s.name);
+  }
+  if (s.kind === "resource_mgmt") {
+    return /^(defer\s|os\.|sql\.)/.test(s.name);
+  }
+  return false;
+}
+
 function isGenericConcurrency(s: Symbol): boolean {
-  if (s.kind !== "concurrency") return false;
-  return GENERIC_SYMBOL_NAMES.has(s.name) ||
-    /^(go\s|sync\.|make\(chan)/.test(s.name);
+  return isGenericSymbol(s);
 }
 
 function formatStructuralChanges(symbols: Symbol[], fileSummaries: FileSummary[]): string {
@@ -211,44 +236,61 @@ export function composeComment(
     const rows: FileRow[] = [];
 
     for (const f of relevantFiles) {
-      const hasConcurrency = f.symbols.some((s) => s.kind === "concurrency");
-      const hasErrorChanges = f.symbols.some((s) => s.kind === "errors");
+      const hasHigh = f.symbols.some((s) => HIGH_RISK_KINDS.has(s.kind));
+      const hasMedium = f.symbols.some((s) => MEDIUM_RISK_KINDS.has(s.kind));
+      const hasInfo = f.symbols.some((s) => INFO_KINDS.has(s.kind));
 
       let icon = "🔵";
       let risk = "";
       let riskLevel = 0;
 
-      if (hasConcurrency && hasErrorChanges) {
+      const riskParts: string[] = [];
+
+      const countByKind = (kind: string) => f.symbols.filter((s) => s.kind === kind).length;
+      const namedByKind = (kind: string) => f.symbols
+        .filter((s) => s.kind === kind && s.change === "added" && !isGenericSymbol(s))
+        .slice(0, 2)
+        .map((s) => s.name);
+
+      if (hasHigh) {
         icon = "🔴";
         riskLevel = 3;
-        const concCount = f.symbols.filter((s) => s.kind === "concurrency").length;
-        const errCount = f.symbols.filter((s) => s.kind === "errors").length;
-        risk = `⚠ ${concCount} concurrency, ${errCount} error paths`;
-      } else if (hasConcurrency) {
-        icon = "🔴";
-        riskLevel = 2;
-        const concNames = f.symbols
-          .filter((s) => s.kind === "concurrency" && s.change === "added" && !isGenericConcurrency(s))
-          .slice(0, 2)
-          .map((s) => s.name);
-        const genericCount = f.symbols.filter((s) => s.kind === "concurrency" && isGenericConcurrency(s)).length;
-        const parts: string[] = [...concNames];
-        if (genericCount > 0) parts.push(`+${genericCount} primitives`);
-        risk = `⚠ ${parts.join(", ")}`;
-      } else if (hasErrorChanges) {
-        icon = "🟠";
-        riskLevel = 1;
-        const errNames = f.symbols
-          .filter((s) => s.kind === "errors" && s.change === "added")
-          .slice(0, 2)
-          .map((s) => s.name);
-        risk = errNames.length > 0 ? `⚠ ${errNames.join(", ")}` : "⚠ error path changes";
-      } else if (f.isNew) {
+        const concCount = countByKind("concurrency");
+        const unsafeCount = countByKind("unsafe_ops");
+        if (concCount > 0) riskParts.push(`${concCount} concurrency`);
+        if (unsafeCount > 0) riskParts.push(`${unsafeCount} unsafe`);
+      }
+
+      if (hasMedium) {
+        if (!hasHigh) { icon = "🟠"; riskLevel = 2; }
+        const errNames = namedByKind("errors");
+        const httpCount = countByKind("http_handlers");
+        const extCount = countByKind("external_calls");
+        if (errNames.length > 0) riskParts.push(errNames.join(", "));
+        else if (countByKind("errors") > 0) riskParts.push("error paths");
+        if (httpCount > 0) riskParts.push(`${httpCount} HTTP handler${httpCount > 1 ? "s" : ""}`);
+        if (extCount > 0) riskParts.push(`${extCount} external call${extCount > 1 ? "s" : ""}`);
+      }
+
+      if (hasInfo && !hasHigh && !hasMedium) {
+        if (f.isNew) { icon = "🟢"; riskLevel = 1; }
+        else { riskLevel = 1; }
+        const ctxCount = countByKind("context_lifecycle");
+        const resCount = countByKind("resource_mgmt");
+        if (ctxCount > 0) riskParts.push(`${ctxCount} context`);
+        if (resCount > 0) riskParts.push(`${resCount} resource`);
+      }
+
+      if (!hasHigh && !hasMedium && !hasInfo && f.isNew) {
         icon = "🟢";
       }
 
+      risk = riskParts.length > 0 ? `⚠ ${riskParts.join(", ")}` : "";
+
       const nonTestNonGeneric = f.symbols.filter(
-        (s) => !isTestSymbol(s) && !isGenericConcurrency(s) && s.kind !== "concurrency" && s.kind !== "errors" && s.change === "added"
+        (s) => !isTestSymbol(s) && !isGenericSymbol(s) &&
+          !HIGH_RISK_KINDS.has(s.kind) && !MEDIUM_RISK_KINDS.has(s.kind) &&
+          !INFO_KINDS.has(s.kind) && s.change === "added"
       );
       const keyNames = nonTestNonGeneric.slice(0, 3).map((s) => `\`${s.name}\``);
       if (keyNames.length < nonTestNonGeneric.length) keyNames.push("...");
