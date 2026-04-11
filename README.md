@@ -57,8 +57,6 @@ graph TD
 | 🔵 | handlers.go | `+29/-3` | — | |
 | | _6 test files_ | `+762` | | |
 
-🔴 concurrency / unsafe (review first) · 🟠 errors / HTTP handlers / external calls · 🔵 modified
-
 ---
 
 **How it works:** regex patterns extract new types, functions, errors, concurrency primitives, HTTP handlers, external calls, and resource management per language. Static analyzers (gosec for Go, bandit for Python) scan changed files for security and correctness issues. Both feed into the AI which renders the diagram and summary. The AI only does layout — all facts are deterministic.
