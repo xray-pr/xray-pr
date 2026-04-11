@@ -1,8 +1,8 @@
 # xray
 
-[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-xray-blue?logo=github)](https://github.com/marketplace/actions/xray)
+[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-xray--pr-blue?logo=github)](https://github.com/marketplace/actions/xray-pr)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![GitHub release](https://img.shields.io/github/v/tag/kasrakhosravi/xray?label=version)](https://github.com/kasrakhosravi/xray/releases)
+[![GitHub release](https://img.shields.io/github/v/tag/xray-pr/xray-pr?label=version)](https://github.com/xray-pr/xray-pr/releases)
 
 ![Go](https://img.shields.io/badge/Go-00ADD8?logo=go&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
@@ -18,7 +18,7 @@
 
 The bottleneck of software isn't writing code anymore — it's reviewing it. AI generates 3,600-line PRs in minutes, but a human still needs hours to understand what changed, where the risk is, and what to focus on.
 
-xray fixes this. It extracts facts from the diff deterministically (git + regex), then renders them as a risk-colored architecture diagram. No opinions, no scores — just a visual map of what changed and what needs attention.
+xray fixes this. It extracts structural changes from the diff (regex patterns), runs per-language static analyzers (gosec, bandit, etc.), and feeds both into an AI that renders a risk-colored architecture diagram. No opinions, no scores — just a visual map of what changed and what needs attention.
 
 ## Output
 
@@ -35,9 +35,9 @@ graph TD
     C["handlers.go +29/-3"]:::blue
     D["data_fetcher.go +71/-205"]:::orange
 
-    r1["⚠ RWMutex rewrite"]:::risk -.-> A
-    r2["⚠ watchdog goroutine"]:::risk -.-> A
-    r3["⚠ WaitGroup + channels"]:::risk -.-> B
+    r1["WARN: RWMutex rewrite"]:::risk -.-> A
+    r2["WARN: watchdog goroutine"]:::risk -.-> A
+    r3["WARN: unchecked error return"]:::risk -.-> D
 
     C -->|"calls"| A
     D -->|"fetches"| A
@@ -53,11 +53,15 @@ graph TD
 |:---:|:---|:---:|:---|:---|
 | 🔴 | memory.go | `+790/-533` | `readIngestionState`, `watchdog`, ... | ⚠ RWMutex, +5 primitives |
 | 🔴 | subscription.go | `+51/-23` | — | ⚠ WaitGroup, channels |
-| 🟠 | data_fetcher.go | `+71/-205` | `errorToLabel`, `enrichReceipts` | ⚠ error path changes |
+| 🟠 | data_fetcher.go | `+71/-205` | `errorToLabel`, `enrichReceipts` | ⚠ unchecked error, 1 external call |
 | 🔵 | handlers.go | `+29/-3` | — | |
 | | _6 test files_ | `+762` | | |
 
+🔴 concurrency / unsafe (review first) · 🟠 errors / HTTP handlers / external calls · 🔵 modified
+
 ---
+
+**How it works:** regex patterns extract new types, functions, errors, concurrency primitives, HTTP handlers, external calls, and resource management per language. Static analyzers (gosec for Go, bandit for Python) scan changed files for security and correctness issues. Both feed into the AI which renders the diagram and summary. The AI only does layout — all facts are deterministic.
 
 ## Usage
 
@@ -81,7 +85,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: kasrakhosravi/xray@v0
+      - uses: xray-pr/xray-pr@main
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           # Pick one provider:
@@ -103,11 +107,13 @@ jobs:
         with:
           ref: refs/pull/${{ github.event.issue.number }}/head
           fetch-depth: 0
-      - uses: kasrakhosravi/xray@v0
+      - uses: xray-pr/xray-pr@main
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
+
+Adding a language = one regex pattern file (`src/patterns/`) + one optional analyzer (`src/analyzers/`).
 
 ## License
 
