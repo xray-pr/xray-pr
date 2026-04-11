@@ -36397,7 +36397,8 @@ LAYOUT:
 - Use graph TD
 - File nodes are the main flow: show dependency/call direction between files with labeled arrows
 - Risk nodes attach to their parent file with dotted arrows, positioned to the side
-- Each risk_item from the data becomes its own small risk node with a warning icon
+- DEDUPLICATE risk items: if the same name appears in multiple files, create ONE risk node and connect it to all relevant files
+- Maximum 4-5 risk nodes total — group similar ones (e.g. multiple error types into one "error paths" node)
 
 STYLING (pick highest applicable):
 - RED: has_concurrency=true OR has_unsafe=true (highest risk)
@@ -36415,8 +36416,8 @@ classDef risk fill:#ff6b6b,stroke:#c92a2a,color:#fff,font-size:11px,stroke-width
 
 CRITICAL SYNTAX RULES:
 - ALL node labels MUST use quoted strings: A["label here"]
-- NO parentheses, braces, or angle brackets inside quotes
-- Risk node labels: use format r1["warning text"]
+- NO parentheses, braces, angle brackets, or emoji inside quotes — text only
+- Risk node labels: use format r1["WARN: description"] — no emoji, no special chars
 - Keep file node labels short: just filename and +N/-N
 - Dotted arrows from risk to file: r1 -.-> A
 
