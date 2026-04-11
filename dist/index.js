@@ -35678,28 +35678,256 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.runAnalyzers = runAnalyzers;
-exports.summarizeFindings = summarizeFindings;
+const core = __importStar(__nccwpck_require__(7484));
+const go_1 = __nccwpck_require__(4145);
+const python_1 = __nccwpck_require__(6517);
+const ANALYZERS = {
+    go: go_1.analyzeGo,
+    python: python_1.analyzePython,
+};
+async function runAnalyzers(languages, changedFiles) {
+    const allFindings = [];
+    for (const lang of languages) {
+        const analyze = ANALYZERS[lang];
+        if (!analyze)
+            continue;
+        core.info(`Running ${lang} analyzer...`);
+        try {
+            const findings = await analyze(changedFiles);
+            allFindings.push(...findings);
+            core.info(`${lang}: ${findings.length} findings`);
+        }
+        catch (err) {
+            core.warning(`${lang} analyzer failed: ${err}`);
+        }
+    }
+    return allFindings;
+}
+
+
+/***/ }),
+
+/***/ 4145:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.analyzeGo = analyzeGo;
 const exec = __importStar(__nccwpck_require__(5236));
 const core = __importStar(__nccwpck_require__(7484));
-function parseGosecJson(output) {
+const fs = __importStar(__nccwpck_require__(9896));
+const os = __importStar(__nccwpck_require__(857));
+const path = __importStar(__nccwpck_require__(6928));
+const LINTERS = [
+    "gosec", // security: hardcoded creds, SQL injection, weak crypto
+    "errcheck", // unchecked error return values
+    "bodyclose", // HTTP response body not closed
+    "contextcheck", // non-inherited context usage
+    "noctx", // HTTP requests without context
+].join(",");
+async function tryExec(cmd, args) {
+    let output = "";
+    try {
+        await exec.exec(cmd, args, {
+            listeners: { stdout: (data) => (output += data.toString()) },
+            silent: true,
+            ignoreReturnCode: true,
+        });
+        return { output, ok: true };
+    }
+    catch {
+        return { output: "", ok: false };
+    }
+}
+async function analyzeGo(changedFiles) {
+    const goFiles = changedFiles.filter((f) => f.endsWith(".go") && !f.endsWith("_test.go"));
+    if (goFiles.length === 0)
+        return [];
+    core.info("Installing golangci-lint...");
+    const installResult = await tryExec("go", [
+        "install",
+        "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest",
+    ]);
+    if (!installResult.ok) {
+        core.warning("Failed to install golangci-lint, skipping Go analysis");
+        return [];
+    }
+    const configPath = path.join(os.tmpdir(), ".golangci-xray.yml");
+    fs.writeFileSync(configPath, `
+linters:
+  enable-only:
+    - gosec
+    - errcheck
+    - bodyclose
+    - contextcheck
+    - noctx
+  settings:
+    gosec:
+      excludes:
+        - G115
+issues:
+  max-issues-per-linter: 20
+  max-same-issues: 3
+`);
+    const dirs = new Set(goFiles.map((f) => "./" + path.dirname(f) + "/..."));
+    core.info(`Running golangci-lint (${LINTERS}) on ${dirs.size} packages...`);
+    const result = await tryExec("golangci-lint", [
+        "run",
+        "--config", configPath,
+        "--out-format", "json",
+        "--timeout", "120s",
+        "--new=false",
+        ...Array.from(dirs),
+    ]);
+    if (!result.output)
+        return [];
+    return parseGolangciOutput(result.output);
+}
+function parseGolangciOutput(output) {
     try {
         const data = JSON.parse(output);
-        if (!data.Issues)
+        if (!data.Issues || !Array.isArray(data.Issues))
             return [];
-        return data.Issues.map((issue) => ({
-            file: issue.file,
-            line: parseInt(issue.line, 10),
-            severity: issue.severity === "HIGH" ? "HIGH" :
-                issue.severity === "MEDIUM" ? "MEDIUM" : "LOW",
-            message: issue.details,
-            rule: issue.rule_id,
-        }));
+        return data.Issues.map((issue) => {
+            const linter = issue.FromLinter || "unknown";
+            const severity = mapSeverity(linter, issue.Severity);
+            return {
+                file: issue.Pos.Filename,
+                line: issue.Pos.Line,
+                severity,
+                message: issue.Text,
+                rule: linter,
+            };
+        });
     }
     catch {
         return [];
     }
 }
-function parseBanditJson(output) {
+function mapSeverity(linter, raw) {
+    if (linter === "gosec")
+        return raw === "HIGH" ? "HIGH" : "MEDIUM";
+    if (linter === "errcheck")
+        return "MEDIUM";
+    if (linter === "bodyclose")
+        return "HIGH";
+    if (linter === "contextcheck")
+        return "MEDIUM";
+    if (linter === "noctx")
+        return "MEDIUM";
+    return "LOW";
+}
+
+
+/***/ }),
+
+/***/ 6517:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.analyzePython = analyzePython;
+const exec = __importStar(__nccwpck_require__(5236));
+const core = __importStar(__nccwpck_require__(7484));
+async function tryExec(cmd, args) {
+    let output = "";
+    try {
+        await exec.exec(cmd, args, {
+            listeners: { stdout: (data) => (output += data.toString()) },
+            silent: true,
+            ignoreReturnCode: true,
+        });
+        return { output, ok: true };
+    }
+    catch {
+        return { output: "", ok: false };
+    }
+}
+async function analyzePython(changedFiles) {
+    const pyFiles = changedFiles.filter((f) => f.endsWith(".py") && !f.includes("test_") && !f.endsWith("_test.py"));
+    if (pyFiles.length === 0)
+        return [];
+    core.info("Installing bandit...");
+    const installResult = await tryExec("pip", ["install", "bandit", "-q"]);
+    if (!installResult.ok) {
+        core.warning("Failed to install bandit, skipping Python analysis");
+        return [];
+    }
+    core.info(`Running bandit on ${pyFiles.length} files...`);
+    const result = await tryExec("bandit", ["-f", "json", "-q", ...pyFiles]);
+    if (!result.output)
+        return [];
+    return parseBanditOutput(result.output);
+}
+function parseBanditOutput(output) {
     try {
         const data = JSON.parse(output);
         if (!data.results)
@@ -35716,92 +35944,6 @@ function parseBanditJson(output) {
     catch {
         return [];
     }
-}
-const ANALYZERS = {
-    go: {
-        install: "go install github.com/securego/gosec/v2/cmd/gosec@latest",
-        run: (files) => ["gosec", "-fmt=json", "-quiet", "-exclude-dir=vendor", ...files],
-        parse: parseGosecJson,
-    },
-    python: {
-        install: "pip install bandit -q",
-        run: (files) => ["bandit", "-f", "json", "-q", ...files],
-        parse: parseBanditJson,
-    },
-};
-async function tryExec(cmd, args) {
-    let output = "";
-    let errOutput = "";
-    try {
-        await exec.exec(cmd, args, {
-            listeners: {
-                stdout: (data) => (output += data.toString()),
-                stderr: (data) => (errOutput += data.toString()),
-            },
-            silent: true,
-            ignoreReturnCode: true,
-        });
-        return { output: output || errOutput, ok: true };
-    }
-    catch {
-        return { output: "", ok: false };
-    }
-}
-async function runAnalyzers(languages, changedFiles) {
-    const allFindings = [];
-    for (const lang of languages) {
-        const config = ANALYZERS[lang];
-        if (!config)
-            continue;
-        core.info(`Installing ${lang} analyzer...`);
-        const installParts = config.install.split(" ");
-        const installResult = await tryExec(installParts[0], installParts.slice(1));
-        if (!installResult.ok) {
-            core.warning(`Failed to install ${lang} analyzer, skipping`);
-            continue;
-        }
-        const langFiles = changedFiles.filter((f) => {
-            if (lang === "go")
-                return f.endsWith(".go") && !f.endsWith("_test.go");
-            if (lang === "python")
-                return f.endsWith(".py") && !f.includes("test_") && !f.endsWith("_test.py");
-            return false;
-        });
-        if (langFiles.length === 0)
-            continue;
-        core.info(`Running ${lang} analyzer on ${langFiles.length} files...`);
-        const runArgs = config.run(langFiles);
-        const result = await tryExec(runArgs[0], runArgs.slice(1));
-        if (result.output) {
-            const findings = config.parse(result.output);
-            allFindings.push(...findings);
-            core.info(`${lang} analyzer: ${findings.length} findings`);
-        }
-    }
-    return allFindings;
-}
-function summarizeFindings(findings) {
-    if (findings.length === 0)
-        return [];
-    const byFile = new Map();
-    for (const f of findings) {
-        const existing = byFile.get(f.file) || [];
-        existing.push(f);
-        byFile.set(f.file, existing);
-    }
-    const lines = [];
-    for (const [file, fileFindings] of byFile) {
-        const high = fileFindings.filter((f) => f.severity === "HIGH").length;
-        const medium = fileFindings.filter((f) => f.severity === "MEDIUM").length;
-        const shortFile = file.split("/").pop() || file;
-        const parts = [];
-        if (high > 0)
-            parts.push(`${high} high`);
-        if (medium > 0)
-            parts.push(`${medium} medium`);
-        lines.push(`${shortFile}: ${parts.join(", ")}`);
-    }
-    return lines;
 }
 
 
@@ -36343,7 +36485,7 @@ ${filesChanged} files, +${linesAdded}/-${linesRemoved}
 Output ONLY the sentence, nothing else.`, 100);
     return text.trim();
 }
-async function generateDiagram(llm, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved) {
+async function generateDiagram(llm, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved, findings = []) {
     const relevantFiles = fileSummaries.filter((f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 20));
     if (relevantFiles.length === 0) {
         return null;
@@ -36385,6 +36527,10 @@ async function generateDiagram(llm, fileSummaries, allSymbols, filesChanged, lin
             has_external_calls: hasExternalCalls,
             risk_items: riskItems.slice(0, 5),
             key_symbols: keySymbols,
+            analyzer_findings: findings
+                .filter((fd) => f.file.endsWith(fd.file) || fd.file.endsWith(f.file))
+                .slice(0, 3)
+                .map((fd) => `${fd.severity}: ${fd.message} [${fd.rule}]`),
         };
     });
     const text = await llm.generate(`Generate a Mermaid diagram for a pull request code review.
@@ -36399,6 +36545,7 @@ LAYOUT:
 - Risk nodes attach to their parent file with dotted arrows, positioned to the side
 - DEDUPLICATE risk items: if the same name appears in multiple files, create ONE risk node and connect it to all relevant files
 - Maximum 4-5 risk nodes total — group similar ones (e.g. multiple error types into one "error paths" node)
+- If a file has analyzer_findings, include the most severe one as a risk node (these come from static analysis tools like gosec, errcheck, bandit)
 
 STYLING (pick highest applicable):
 - RED: has_concurrency=true OR has_unsafe=true (highest risk)
@@ -36802,7 +36949,7 @@ async function run() {
             try {
                 [summaryLine, diagram] = await Promise.all([
                     (0, diagram_1.generateSummaryLine)(llm, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved),
-                    (0, diagram_1.generateDiagram)(llm, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved),
+                    (0, diagram_1.generateDiagram)(llm, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, findings),
                 ]);
                 core.info(`Summary: ${summaryLine}`);
                 if (diagram) {

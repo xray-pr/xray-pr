@@ -1,5 +1,6 @@
 import { LLMProvider } from "./llm";
 import { FileSummary, Symbol } from "./extract";
+import { Finding } from "./analyze";
 
 function sanitize(name: string): string {
   return name.replace(/[(){}[\]<>"]/g, "").trim();
@@ -45,7 +46,8 @@ export async function generateDiagram(
   allSymbols: Symbol[],
   filesChanged: number,
   linesAdded: number,
-  linesRemoved: number
+  linesRemoved: number,
+  findings: Finding[] = []
 ): Promise<string | null> {
   const relevantFiles = fileSummaries.filter(
     (f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 20)
@@ -99,6 +101,10 @@ export async function generateDiagram(
       has_external_calls: hasExternalCalls,
       risk_items: riskItems.slice(0, 5),
       key_symbols: keySymbols,
+      analyzer_findings: findings
+        .filter((fd) => f.file.endsWith(fd.file) || fd.file.endsWith(f.file))
+        .slice(0, 3)
+        .map((fd) => `${fd.severity}: ${fd.message} [${fd.rule}]`),
     };
   });
 
@@ -115,6 +121,7 @@ LAYOUT:
 - Risk nodes attach to their parent file with dotted arrows, positioned to the side
 - DEDUPLICATE risk items: if the same name appears in multiple files, create ONE risk node and connect it to all relevant files
 - Maximum 4-5 risk nodes total — group similar ones (e.g. multiple error types into one "error paths" node)
+- If a file has analyzer_findings, include the most severe one as a risk node (these come from static analysis tools like gosec, errcheck, bandit)
 
 STYLING (pick highest applicable):
 - RED: has_concurrency=true OR has_unsafe=true (highest risk)

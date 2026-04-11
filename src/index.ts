@@ -126,7 +126,8 @@ async function run(): Promise<void> {
             extraction.symbols,
             extraction.changedFiles.length,
             extraction.linesAdded,
-            extraction.linesRemoved
+            extraction.linesRemoved,
+            findings
           ),
         ]);
         core.info(`Summary: ${summaryLine}`);
