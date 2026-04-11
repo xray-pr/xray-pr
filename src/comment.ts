@@ -2,7 +2,7 @@ import * as core from "@actions/core";
 import * as crypto from "crypto";
 import * as github from "@actions/github";
 import { Symbol, FileSummary } from "./extract";
-import { Classification, formatClassification } from "./classify";
+import { Classification } from "./classify";
 import { Finding } from "./analyze";
 
 const COMMENT_HEADER = "<!-- xray-arch-diff -->";
