@@ -35638,6 +35638,175 @@ function wrappy (fn, cb) {
 
 /***/ }),
 
+/***/ 2475:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.runAnalyzers = runAnalyzers;
+exports.summarizeFindings = summarizeFindings;
+const exec = __importStar(__nccwpck_require__(5236));
+const core = __importStar(__nccwpck_require__(7484));
+function parseGosecJson(output) {
+    try {
+        const data = JSON.parse(output);
+        if (!data.Issues)
+            return [];
+        return data.Issues.map((issue) => ({
+            file: issue.file,
+            line: parseInt(issue.line, 10),
+            severity: issue.severity === "HIGH" ? "HIGH" :
+                issue.severity === "MEDIUM" ? "MEDIUM" : "LOW",
+            message: issue.details,
+            rule: issue.rule_id,
+        }));
+    }
+    catch {
+        return [];
+    }
+}
+function parseBanditJson(output) {
+    try {
+        const data = JSON.parse(output);
+        if (!data.results)
+            return [];
+        return data.results.map((r) => ({
+            file: r.filename,
+            line: r.line_number,
+            severity: r.issue_severity === "HIGH" ? "HIGH" :
+                r.issue_severity === "MEDIUM" ? "MEDIUM" : "LOW",
+            message: r.issue_text,
+            rule: r.test_id,
+        }));
+    }
+    catch {
+        return [];
+    }
+}
+const ANALYZERS = {
+    go: {
+        install: "go install github.com/securego/gosec/v2/cmd/gosec@latest",
+        run: (files) => ["gosec", "-fmt=json", "-quiet", "-exclude-dir=vendor", ...files],
+        parse: parseGosecJson,
+    },
+    python: {
+        install: "pip install bandit -q",
+        run: (files) => ["bandit", "-f", "json", "-q", ...files],
+        parse: parseBanditJson,
+    },
+};
+async function tryExec(cmd, args) {
+    let output = "";
+    let errOutput = "";
+    try {
+        await exec.exec(cmd, args, {
+            listeners: {
+                stdout: (data) => (output += data.toString()),
+                stderr: (data) => (errOutput += data.toString()),
+            },
+            silent: true,
+            ignoreReturnCode: true,
+        });
+        return { output: output || errOutput, ok: true };
+    }
+    catch {
+        return { output: "", ok: false };
+    }
+}
+async function runAnalyzers(languages, changedFiles) {
+    const allFindings = [];
+    for (const lang of languages) {
+        const config = ANALYZERS[lang];
+        if (!config)
+            continue;
+        core.info(`Installing ${lang} analyzer...`);
+        const installParts = config.install.split(" ");
+        const installResult = await tryExec(installParts[0], installParts.slice(1));
+        if (!installResult.ok) {
+            core.warning(`Failed to install ${lang} analyzer, skipping`);
+            continue;
+        }
+        const langFiles = changedFiles.filter((f) => {
+            if (lang === "go")
+                return f.endsWith(".go") && !f.endsWith("_test.go");
+            if (lang === "python")
+                return f.endsWith(".py") && !f.includes("test_") && !f.endsWith("_test.py");
+            return false;
+        });
+        if (langFiles.length === 0)
+            continue;
+        core.info(`Running ${lang} analyzer on ${langFiles.length} files...`);
+        const runArgs = config.run(langFiles);
+        const result = await tryExec(runArgs[0], runArgs.slice(1));
+        if (result.output) {
+            const findings = config.parse(result.output);
+            allFindings.push(...findings);
+            core.info(`${lang} analyzer: ${findings.length} findings`);
+        }
+    }
+    return allFindings;
+}
+function summarizeFindings(findings) {
+    if (findings.length === 0)
+        return [];
+    const byFile = new Map();
+    for (const f of findings) {
+        const existing = byFile.get(f.file) || [];
+        existing.push(f);
+        byFile.set(f.file, existing);
+    }
+    const lines = [];
+    for (const [file, fileFindings] of byFile) {
+        const high = fileFindings.filter((f) => f.severity === "HIGH").length;
+        const medium = fileFindings.filter((f) => f.severity === "MEDIUM").length;
+        const shortFile = file.split("/").pop() || file;
+        const parts = [];
+        if (high > 0)
+            parts.push(`${high} high`);
+        if (medium > 0)
+            parts.push(`${medium} medium`);
+        lines.push(`${shortFile}: ${parts.join(", ")}`);
+    }
+    return lines;
+}
+
+
+/***/ }),
+
 /***/ 3813:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -35962,7 +36131,7 @@ function formatFilesSummary(newFiles, deletedFiles, totalChanged) {
         parts.push(`**${deletedFiles.length}** deleted`);
     return parts.join(" · ");
 }
-function composeComment(classification, symbols, fileSummaries, newFiles, deletedFiles, totalFiles, linesAdded, linesRemoved, diagram, prFilesUrl, summaryLine) {
+function composeComment(classification, symbols, fileSummaries, newFiles, deletedFiles, totalFiles, linesAdded, linesRemoved, diagram, prFilesUrl, summaryLine, findings) {
     const sections = [COMMENT_HEADER];
     if (summaryLine) {
         sections.push(`**${summaryLine}**`);
@@ -36043,6 +36212,25 @@ function composeComment(classification, symbols, fileSummaries, newFiles, delete
             const keyNames = nonTestNonGeneric.slice(0, 3).map((s) => `\`${s.name}\``);
             if (keyNames.length < nonTestNonGeneric.length)
                 keyNames.push("...");
+            const fileFindings = findings.filter((fd) => f.file.endsWith(fd.file) || fd.file.endsWith(f.file));
+            const highFindings = fileFindings.filter((fd) => fd.severity === "HIGH").length;
+            const medFindings = fileFindings.filter((fd) => fd.severity === "MEDIUM").length;
+            if (highFindings > 0) {
+                if (riskLevel < 3) {
+                    icon = "🔴";
+                    riskLevel = 3;
+                }
+                riskParts.push(`${highFindings} high severity`);
+                risk = `⚠ ${riskParts.join(", ")}`;
+            }
+            else if (medFindings > 0) {
+                if (riskLevel < 2) {
+                    icon = "🟠";
+                    riskLevel = 2;
+                }
+                riskParts.push(`${medFindings} medium severity`);
+                risk = `⚠ ${riskParts.join(", ")}`;
+            }
             const shortFile = f.file.split("/").pop() || f.file;
             const fileLink = prFilesUrl
                 ? `[${shortFile}](${prFilesUrl}#diff-${hashPath(f.file)})`
@@ -36067,6 +36255,25 @@ function composeComment(classification, symbols, fileSummaries, newFiles, delete
             const testLines = testFiles.reduce((sum, f) => sum + f.linesAdded, 0);
             sections.push(`| | _${testFiles.length} test files_ | \`+${testLines}\` | | |`);
         }
+        sections.push("");
+    }
+    if (findings.length > 0) {
+        const high = findings.filter((f) => f.severity === "HIGH");
+        const medium = findings.filter((f) => f.severity === "MEDIUM");
+        sections.push("<details><summary>Static analysis findings");
+        if (high.length > 0)
+            sections[sections.length - 1] += ` — ${high.length} high, ${medium.length} medium`;
+        sections[sections.length - 1] += "</summary>";
+        sections.push("");
+        for (const f of [...high, ...medium].slice(0, 10)) {
+            const shortFile = f.file.split("/").pop() || f.file;
+            sections.push(`- **${f.severity}** \`${shortFile}:${f.line}\` ${f.message} (\`${f.rule}\`)`);
+        }
+        if (findings.length > 10) {
+            sections.push(`- _...and ${findings.length - 10} more_`);
+        }
+        sections.push("");
+        sections.push("</details>");
         sections.push("");
     }
     sections.push("<sub>[xray](https://github.com/kasrakhosravi/xray) — see through AI slop with deterministic architecture PR diff reviews</sub>");
@@ -36514,6 +36721,7 @@ const classify_1 = __nccwpck_require__(3813);
 const diagram_1 = __nccwpck_require__(2074);
 const comment_1 = __nccwpck_require__(2246);
 const llm_1 = __nccwpck_require__(1908);
+const analyze_1 = __nccwpck_require__(2475);
 async function resolveBaseRef(token) {
     const explicit = core.getInput("base_ref");
     if (explicit)
@@ -36576,6 +36784,15 @@ async function run() {
         const classification = (0, classify_1.classify)(extraction, patterns);
         core.info(`Classification: logic=${classification.logic} tests=${classification.tests} types=${classification.types} docs=${classification.docs}`);
         core.info(`Found ${extraction.symbols.length} symbol changes`);
+        core.info("Running static analyzers...");
+        let findings = [];
+        try {
+            findings = await (0, analyze_1.runAnalyzers)(extraction.languages, extraction.changedFiles);
+            core.info(`Static analysis: ${findings.length} findings`);
+        }
+        catch (err) {
+            core.warning(`Static analysis failed: ${err}`);
+        }
         let diagram = null;
         let summaryLine = "";
         if (diagramEnabled && llmConfig) {
@@ -36608,7 +36825,7 @@ async function run() {
             ? `https://github.com/${repo.owner}/${repo.repo}/pull/${prNumber}/files`
             : "";
         core.info("Composing comment...");
-        const body = (0, comment_1.composeComment)(classification, extraction.symbols, extraction.fileSummaries, extraction.newFiles, extraction.deletedFiles, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, diagram, prFilesUrl, summaryLine);
+        const body = (0, comment_1.composeComment)(classification, extraction.symbols, extraction.fileSummaries, extraction.newFiles, extraction.deletedFiles, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, diagram, prFilesUrl, summaryLine, findings);
         core.info("Posting comment...");
         await (0, comment_1.postComment)(token, body);
         core.info("Done.");

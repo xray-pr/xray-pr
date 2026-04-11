@@ -3,6 +3,7 @@ import * as crypto from "crypto";
 import * as github from "@actions/github";
 import { Symbol, FileSummary } from "./extract";
 import { Classification, formatClassification } from "./classify";
+import { Finding } from "./analyze";
 
 const COMMENT_HEADER = "<!-- xray-arch-diff -->";
 
@@ -202,7 +203,8 @@ export function composeComment(
   linesRemoved: number,
   diagram: string | null,
   prFilesUrl: string,
-  summaryLine: string
+  summaryLine: string,
+  findings: Finding[]
 ): string {
   const sections: string[] = [COMMENT_HEADER];
 
@@ -295,6 +297,20 @@ export function composeComment(
       const keyNames = nonTestNonGeneric.slice(0, 3).map((s) => `\`${s.name}\``);
       if (keyNames.length < nonTestNonGeneric.length) keyNames.push("...");
 
+      const fileFindings = findings.filter((fd) => f.file.endsWith(fd.file) || fd.file.endsWith(f.file));
+      const highFindings = fileFindings.filter((fd) => fd.severity === "HIGH").length;
+      const medFindings = fileFindings.filter((fd) => fd.severity === "MEDIUM").length;
+
+      if (highFindings > 0) {
+        if (riskLevel < 3) { icon = "🔴"; riskLevel = 3; }
+        riskParts.push(`${highFindings} high severity`);
+        risk = `⚠ ${riskParts.join(", ")}`;
+      } else if (medFindings > 0) {
+        if (riskLevel < 2) { icon = "🟠"; riskLevel = 2; }
+        riskParts.push(`${medFindings} medium severity`);
+        risk = `⚠ ${riskParts.join(", ")}`;
+      }
+
       const shortFile = f.file.split("/").pop() || f.file;
       const fileLink = prFilesUrl
         ? `[${shortFile}](${prFilesUrl}#diff-${hashPath(f.file)})`
@@ -327,6 +343,25 @@ export function composeComment(
       sections.push(`| | _${testFiles.length} test files_ | \`+${testLines}\` | | |`);
     }
 
+    sections.push("");
+  }
+
+  if (findings.length > 0) {
+    const high = findings.filter((f) => f.severity === "HIGH");
+    const medium = findings.filter((f) => f.severity === "MEDIUM");
+    sections.push("<details><summary>Static analysis findings");
+    if (high.length > 0) sections[sections.length - 1] += ` — ${high.length} high, ${medium.length} medium`;
+    sections[sections.length - 1] += "</summary>";
+    sections.push("");
+    for (const f of [...high, ...medium].slice(0, 10)) {
+      const shortFile = f.file.split("/").pop() || f.file;
+      sections.push(`- **${f.severity}** \`${shortFile}:${f.line}\` ${f.message} (\`${f.rule}\`)`);
+    }
+    if (findings.length > 10) {
+      sections.push(`- _...and ${findings.length - 10} more_`);
+    }
+    sections.push("");
+    sections.push("</details>");
     sections.push("");
   }
 

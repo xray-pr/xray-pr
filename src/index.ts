@@ -8,6 +8,7 @@ import { classify } from "./classify";
 import { generateDiagram, generateSummaryLine } from "./diagram";
 import { composeComment, postComment } from "./comment";
 import { resolveLLMConfig, createProvider } from "./llm";
+import { runAnalyzers, Finding } from "./analyze";
 
 async function resolveBaseRef(token: string): Promise<string> {
   const explicit = core.getInput("base_ref");
@@ -94,6 +95,15 @@ async function run(): Promise<void> {
 
     core.info(`Found ${extraction.symbols.length} symbol changes`);
 
+    core.info("Running static analyzers...");
+    let findings: Finding[] = [];
+    try {
+      findings = await runAnalyzers(extraction.languages, extraction.changedFiles);
+      core.info(`Static analysis: ${findings.length} findings`);
+    } catch (err) {
+      core.warning(`Static analysis failed: ${err}`);
+    }
+
     let diagram: string | null = null;
     let summaryLine = "";
 
@@ -153,7 +163,8 @@ async function run(): Promise<void> {
       extraction.linesRemoved,
       diagram,
       prFilesUrl,
-      summaryLine
+      summaryLine,
+      findings
     );
 
     core.info("Posting comment...");
