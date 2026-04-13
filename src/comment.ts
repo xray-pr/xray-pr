@@ -18,15 +18,15 @@ const GENERIC_SYMBOL_NAMES = new Set([
 ]);
 
 const HIGH_RISK_KINDS = new Set([
-  "concurrency", "unsafe_ops",
+  "concurrency", "unsafe_ops", "external_calls",
 ]);
 
 const MEDIUM_RISK_KINDS = new Set([
-  "errors", "http_handlers", "external_calls",
+  "http_handlers",
 ]);
 
 const INFO_KINDS = new Set([
-  "context_lifecycle", "resource_mgmt",
+  "errors", "context_lifecycle", "resource_mgmt",
 ]);
 
 function isTestSymbol(s: Symbol): boolean {

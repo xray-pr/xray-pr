@@ -124,11 +124,15 @@ LAYOUT:
 - If a file has analyzer_findings, include the most severe one as a risk node (these come from static analysis tools like gosec, errcheck, bandit)
 
 STYLING (pick highest applicable):
-- RED: has_concurrency=true OR has_unsafe=true (highest risk)
-- ORANGE: has_error_changes=true OR has_http_handlers=true OR has_external_calls=true
+- RED: has_concurrency=true OR has_unsafe=true OR has_external_calls=true (highest risk — scaling, blocking, safety)
+- ORANGE: has_http_handlers=true (new attack surface)
 - GREEN: is_new=true with no red/orange flags
-- BLUE: everything else
+- BLUE: everything else (including files that only define error types — error definitions are not risky by themselves)
 - All risk badge nodes: use class "risk"
+
+SCALING AWARENESS:
+- If a file has has_external_calls=true, add a risk node about potential scaling/timeout concerns (e.g. "WARN: outbound HTTP in hot path — no timeout/circuit breaker visible")
+- External HTTP calls in auth or handler code are the highest review priority — they block on every request
 
 CLASS DEFINITIONS — include these exactly:
 classDef red fill:#f8d7da,stroke:#dc3545,stroke-width:2px
@@ -141,8 +145,9 @@ CRITICAL SYNTAX RULES:
 - ALL node labels MUST use quoted strings: A["label here"]
 - NO parentheses, braces, angle brackets, or emoji inside quotes — text only
 - Risk node labels: use format r1["WARN: description"] — no emoji, no special chars
-- Keep file node labels short: just filename and +N/-N
+- File node labels: "filename  +N/-N" (include key symbol names when space allows, 2-3 per node)
 - Dotted arrows from risk to file: r1 -.-> A
+- Use graph TD with generous spacing — prefer readability over compactness
 
 PR summary: ${filesChanged} files changed, +${linesAdded}/-${linesRemoved}
 
