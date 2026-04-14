@@ -1,7 +1,32 @@
+import * as crypto from "crypto";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import Anthropic from "@anthropic-ai/sdk";
 
 export interface LLMProvider {
   generate(prompt: string, maxTokens: number): Promise<string>;
+}
+
+const CACHE_DIR = path.join(os.tmpdir(), "xray-cache");
+
+function getCached(key: string): string | null {
+  try {
+    const file = path.join(CACHE_DIR, key);
+    if (fs.existsSync(file)) return fs.readFileSync(file, "utf-8");
+  } catch { /* ignore */ }
+  return null;
+}
+
+function setCache(key: string, value: string): void {
+  try {
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+    fs.writeFileSync(path.join(CACHE_DIR, key), value);
+  } catch { /* ignore */ }
+}
+
+function hashPrompt(prompt: string, model: string): string {
+  return crypto.createHash("sha256").update(`${model}:${prompt}`).digest("hex");
 }
 
 export interface LLMConfig {
@@ -12,8 +37,8 @@ export interface LLMConfig {
 
 const DEFAULT_MODELS: Record<string, string> = {
   anthropic: "claude-sonnet-4-20250514",
-  openai: "gpt-4o",
-  openrouter: "anthropic/claude-sonnet-4",
+  openai: "gpt-4o-mini",
+  openrouter: "google/gemini-2.5-flash",
 };
 
 export function resolveLLMConfig(
@@ -58,12 +83,18 @@ class AnthropicProvider implements LLMProvider {
   }
 
   async generate(prompt: string, maxTokens: number): Promise<string> {
+    const key = hashPrompt(prompt, this.model);
+    const cached = getCached(key);
+    if (cached) return cached;
+
     const response = await this.client.messages.create({
       model: this.model,
       max_tokens: maxTokens,
       messages: [{ role: "user", content: prompt }],
     });
-    return response.content[0].type === "text" ? response.content[0].text : "";
+    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    if (text) setCache(key, text);
+    return text;
   }
 }
 
@@ -79,6 +110,10 @@ class OpenAIProvider implements LLMProvider {
   }
 
   async generate(prompt: string, maxTokens: number): Promise<string> {
+    const key = hashPrompt(prompt, this.model);
+    const cached = getCached(key);
+    if (cached) return cached;
+
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -100,7 +135,9 @@ class OpenAIProvider implements LLMProvider {
     const data = (await response.json()) as {
       choices: { message: { content: string } }[];
     };
-    return data.choices?.[0]?.message?.content || "";
+    const text = data.choices?.[0]?.message?.content || "";
+    if (text) setCache(key, text);
+    return text;
   }
 }
 

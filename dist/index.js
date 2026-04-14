@@ -37005,17 +37005,74 @@ run();
 
 "use strict";
 
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.resolveLLMConfig = resolveLLMConfig;
 exports.createProvider = createProvider;
+const crypto = __importStar(__nccwpck_require__(6982));
+const fs = __importStar(__nccwpck_require__(9896));
+const os = __importStar(__nccwpck_require__(857));
+const path = __importStar(__nccwpck_require__(6928));
 const sdk_1 = __importDefault(__nccwpck_require__(121));
+const CACHE_DIR = path.join(os.tmpdir(), "xray-cache");
+function getCached(key) {
+    try {
+        const file = path.join(CACHE_DIR, key);
+        if (fs.existsSync(file))
+            return fs.readFileSync(file, "utf-8");
+    }
+    catch { /* ignore */ }
+    return null;
+}
+function setCache(key, value) {
+    try {
+        fs.mkdirSync(CACHE_DIR, { recursive: true });
+        fs.writeFileSync(path.join(CACHE_DIR, key), value);
+    }
+    catch { /* ignore */ }
+}
+function hashPrompt(prompt, model) {
+    return crypto.createHash("sha256").update(`${model}:${prompt}`).digest("hex");
+}
 const DEFAULT_MODELS = {
     anthropic: "claude-sonnet-4-20250514",
-    openai: "gpt-4o",
-    openrouter: "anthropic/claude-sonnet-4",
+    openai: "gpt-4o-mini",
+    openrouter: "google/gemini-2.5-flash",
 };
 function resolveLLMConfig(anthropicKey, openaiKey, openrouterKey, modelOverride) {
     if (anthropicKey) {
@@ -37052,12 +37109,19 @@ class AnthropicProvider {
         this.model = model;
     }
     async generate(prompt, maxTokens) {
+        const key = hashPrompt(prompt, this.model);
+        const cached = getCached(key);
+        if (cached)
+            return cached;
         const response = await this.client.messages.create({
             model: this.model,
             max_tokens: maxTokens,
             messages: [{ role: "user", content: prompt }],
         });
-        return response.content[0].type === "text" ? response.content[0].text : "";
+        const text = response.content[0].type === "text" ? response.content[0].text : "";
+        if (text)
+            setCache(key, text);
+        return text;
     }
 }
 class OpenAIProvider {
@@ -37070,6 +37134,10 @@ class OpenAIProvider {
         this.baseUrl = baseUrl;
     }
     async generate(prompt, maxTokens) {
+        const key = hashPrompt(prompt, this.model);
+        const cached = getCached(key);
+        if (cached)
+            return cached;
         const response = await fetch(`${this.baseUrl}/chat/completions`, {
             method: "POST",
             headers: {
@@ -37087,7 +37155,10 @@ class OpenAIProvider {
             throw new Error(`${response.status} ${err}`);
         }
         const data = (await response.json());
-        return data.choices?.[0]?.message?.content || "";
+        const text = data.choices?.[0]?.message?.content || "";
+        if (text)
+            setCache(key, text);
+        return text;
     }
 }
 function createProvider(config) {
