@@ -134,19 +134,22 @@ SCALING AWARENESS:
 - If a file has has_external_calls=true, add a risk node about potential scaling/timeout concerns (e.g. "WARN: outbound HTTP in hot path — no timeout/circuit breaker visible")
 - External HTTP calls in auth or handler code are the highest review priority — they block on every request
 
-CLASS DEFINITIONS — include these exactly:
-classDef red fill:#f8d7da,stroke:#dc3545,stroke-width:2px
-classDef orange fill:#fff3cd,stroke:#ffc107,stroke-width:2px
-classDef green fill:#d4edda,stroke:#28a745,stroke-width:2px
-classDef blue fill:#cce5ff,stroke:#0366d6,stroke-width:2px
+CLASS DEFINITIONS — include these exactly (colors work in both light and dark mode):
+classDef red fill:#dc3545,stroke:#a71d2a,color:#fff,stroke-width:2px
+classDef orange fill:#e67e22,stroke:#bf6516,color:#fff,stroke-width:2px
+classDef green fill:#28a745,stroke:#1e7e34,color:#fff,stroke-width:2px
+classDef blue fill:#0366d6,stroke:#024ea4,color:#fff,stroke-width:2px
 classDef risk fill:#ff6b6b,stroke:#c92a2a,color:#fff,font-size:11px,stroke-width:1px
 
 CRITICAL SYNTAX RULES:
 - ALL node labels MUST use quoted strings: A["label here"]
 - NO parentheses, braces, angle brackets, or emoji inside quotes — text only
 - Risk node labels: use format r1["WARN: description"] — no emoji, no special chars
-- File node labels: "filename  +N/-N" (include key symbol names when space allows, 2-3 per node)
+- File node labels MUST include key function names from key_symbols:
+  Format: "filename +N/-N\nFuncOne, FuncTwo, FuncThree"
+  Show up to 3 function/type names per node. Use \n for line break.
 - Dotted arrows from risk to file: r1 -.-> A
+- EVERY arrow MUST have a label describing the relationship: -->|"calls"| or -->|"implements"| or -->|"configures"| etc.
 - Use graph TD with generous spacing — prefer readability over compactness
 
 PR summary: ${filesChanged} files changed, +${linesAdded}/-${linesRemoved}
