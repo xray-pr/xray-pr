@@ -1,6 +1,7 @@
 import * as core from "@actions/core";
 import { analyzeGo } from "./analyzers/go";
 import { analyzePython } from "./analyzers/python";
+import { analyzeRust } from "./analyzers/rust";
 
 export interface Finding {
   file: string;
@@ -15,6 +16,7 @@ type LanguageAnalyzer = (changedFiles: string[]) => Promise<Finding[]>;
 const ANALYZERS: Record<string, LanguageAnalyzer> = {
   go: analyzeGo,
   python: analyzePython,
+  rust: analyzeRust,
 };
 
 export async function runAnalyzers(
