@@ -6,11 +6,26 @@ import * as path from "path";
 import { Finding } from "../analyze";
 
 const LINTERS = [
-  "gosec",          // security: hardcoded creds, SQL injection, weak crypto
+  // security
+  "gosec",          // hardcoded creds, SQL injection, weak crypto, command injection
+  // error handling
   "errcheck",       // unchecked error return values
-  "bodyclose",      // HTTP response body not closed
-  "contextcheck",   // non-inherited context usage
-  "noctx",          // HTTP requests without context
+  "nilerr",         // returning nil when err != nil (swallowed errors)
+  "wrapcheck",      // errors returned without wrapping (untraceable in production)
+  // resource leaks
+  "bodyclose",      // HTTP response body not closed (connection leak)
+  "sqlclosecheck",  // SQL rows/statements not closed (DB pool exhaustion)
+  // context propagation
+  "contextcheck",   // non-inherited context (cancellation won't propagate)
+  "noctx",          // HTTP requests without context (can't timeout/cancel)
+  // nil safety
+  "nilaway",        // nil pointer dereferences across package boundaries
+  // correctness
+  "staticcheck",    // 150+ checks: dead code, deprecated APIs, incorrect sync, impossible conditions
+  "gocritic",       // 108 checks: suspicious appends, off-by-one, nil returns, duplicate branches
+  "exhaustive",     // missing cases in enum switch statements
+  // observability
+  "spancheck",      // OpenTelemetry span not ended or error not recorded
 ].join(",");
 
 async function tryExec(cmd: string, args: string[]): Promise<{ output: string; ok: boolean }> {
@@ -47,26 +62,42 @@ linters:
   enable-only:
     - gosec
     - errcheck
+    - nilerr
+    - wrapcheck
     - bodyclose
+    - sqlclosecheck
     - contextcheck
     - noctx
+    - nilaway
+    - staticcheck
+    - gocritic
+    - exhaustive
+    - spancheck
   settings:
     gosec:
       excludes:
         - G115
+    gocritic:
+      enabled-tags:
+        - diagnostic
+    exhaustive:
+      default-signifies-exhaustive: true
+    wrapcheck:
+      ignore-sigregexps:
+        - "fmt\\.Errorf"
 issues:
-  max-issues-per-linter: 20
-  max-same-issues: 3
+  max-issues-per-linter: 10
+  max-same-issues: 2
 `);
 
   const dirs = new Set(goFiles.map((f) => "./" + path.dirname(f) + "/..."));
 
-  core.info(`Running golangci-lint (${LINTERS}) on ${dirs.size} packages...`);
+  core.info(`Running golangci-lint (13 linters) on ${dirs.size} packages...`);
   const result = await tryExec("golangci-lint", [
     "run",
     "--config", configPath,
     "--out-format", "json",
-    "--timeout", "120s",
+    "--timeout", "180s",
     "--new=false",
     ...Array.from(dirs),
   ]);
@@ -103,11 +134,23 @@ function parseGolangciOutput(output: string): Finding[] {
   }
 }
 
-function mapSeverity(linter: string, raw: string): "HIGH" | "MEDIUM" | "LOW" {
-  if (linter === "gosec") return raw === "HIGH" ? "HIGH" : "MEDIUM";
-  if (linter === "errcheck") return "MEDIUM";
-  if (linter === "bodyclose") return "HIGH";
-  if (linter === "contextcheck") return "MEDIUM";
-  if (linter === "noctx") return "MEDIUM";
-  return "LOW";
+function mapSeverity(linter: string, _raw: string): "HIGH" | "MEDIUM" | "LOW" {
+  switch (linter) {
+    // HIGH: security, nil panics, resource leaks
+    case "gosec":         return "HIGH";
+    case "nilaway":       return "HIGH";
+    case "bodyclose":     return "HIGH";
+    case "sqlclosecheck": return "HIGH";
+    case "nilerr":        return "HIGH";
+    case "spancheck":     return "HIGH";
+    // MEDIUM: correctness, context, error handling
+    case "staticcheck":   return "MEDIUM";
+    case "gocritic":      return "MEDIUM";
+    case "errcheck":      return "MEDIUM";
+    case "contextcheck":  return "MEDIUM";
+    case "noctx":         return "MEDIUM";
+    case "exhaustive":    return "MEDIUM";
+    case "wrapcheck":     return "LOW";
+    default:              return "LOW";
+  }
 }
