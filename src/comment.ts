@@ -33,16 +33,33 @@ function isTestSymbol(s: Symbol): boolean {
   return /^(Test|Benchmark|test_|describe|it\(|setUp|tearDown)/i.test(s.name);
 }
 
+// Generic-name detector shared across Go and Rust. A "generic" name is a
+// language or library primitive (e.g. `go func`, `tokio::spawn`, `File::open`)
+// that should count toward the kind's signal but should not be listed as a
+// named identifier in risk tooltips or the "Key changes" column. Keep the
+// branches ordered by kind so new languages plug in without touching Go rules.
 function isGenericSymbol(s: Symbol): boolean {
   if (s.kind === "concurrency") {
     return GENERIC_SYMBOL_NAMES.has(s.name) ||
-      /^(go\s|sync\.|make\(chan|select\s|<-\s*chan)/.test(s.name);
+      // Go
+      /^(go\s|sync\.|make\(chan|select\s|<-\s*chan)/.test(s.name) ||
+      // Rust
+      /^(Arc[<:]|Mutex[<:]|RwLock[<:]|tokio::spawn|std::thread::spawn|channel\()/.test(s.name);
   }
   if (s.kind === "context_lifecycle") {
-    return /^(context\.|ctx\.)/.test(s.name);
+    return /^(context\.|ctx\.)/.test(s.name) ||
+      // Rust
+      /^(CancellationToken|tokio::(select!|(time::)?timeout)|JoinHandle|\.abort\(\)|futures::select!)/.test(s.name);
   }
   if (s.kind === "resource_mgmt") {
-    return /^(defer\s|os\.|sql\.)/.test(s.name);
+    return /^(defer\s|os\.|sql\.)/.test(s.name) ||
+      // Rust
+      /^(impl Drop|File::(open|create)|\.(lock|read|write)\(\)|drop\()/.test(s.name);
+  }
+  if (s.kind === "errors") {
+    // Library primitives that aren't named identifiers.
+    // Go: `errors.New(`, `fmt.Errorf(`. Rust: `thiserror`, `anyhow`.
+    return /^(thiserror|anyhow|errors\.New|fmt\.Errorf)/.test(s.name);
   }
   return false;
 }
