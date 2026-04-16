@@ -221,7 +221,8 @@ export function composeComment(
   diagram: string | null,
   prFilesUrl: string,
   summaryLine: string,
-  findings: Finding[]
+  findings: Finding[],
+  minFileLines: number = 20
 ): string {
   const sections: string[] = [COMMENT_HEADER];
 
@@ -239,7 +240,7 @@ export function composeComment(
 
   const nonTestFiles = fileSummaries.filter((f) => !f.isTest);
   const relevantFiles = nonTestFiles.filter(
-    (f) => f.symbols.length > 0 || f.linesAdded > 5
+    (f) => f.symbols.length > 0 || f.linesAdded >= minFileLines
   );
 
   if (relevantFiles.length > 0) {

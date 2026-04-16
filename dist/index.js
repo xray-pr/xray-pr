@@ -36509,7 +36509,7 @@ function formatFilesSummary(newFiles, deletedFiles, totalChanged) {
         parts.push(`**${deletedFiles.length}** deleted`);
     return parts.join(" · ");
 }
-function composeComment(classification, symbols, fileSummaries, newFiles, deletedFiles, totalFiles, linesAdded, linesRemoved, diagram, prFilesUrl, summaryLine, findings) {
+function composeComment(classification, symbols, fileSummaries, newFiles, deletedFiles, totalFiles, linesAdded, linesRemoved, diagram, prFilesUrl, summaryLine, findings, minFileLines = 20) {
     const sections = [COMMENT_HEADER];
     if (summaryLine) {
         sections.push(`**${summaryLine}**`);
@@ -36522,7 +36522,7 @@ function composeComment(classification, symbols, fileSummaries, newFiles, delete
         sections.push("");
     }
     const nonTestFiles = fileSummaries.filter((f) => !f.isTest);
-    const relevantFiles = nonTestFiles.filter((f) => f.symbols.length > 0 || f.linesAdded > 5);
+    const relevantFiles = nonTestFiles.filter((f) => f.symbols.length > 0 || f.linesAdded >= minFileLines);
     if (relevantFiles.length > 0) {
         const rows = [];
         for (const f of relevantFiles) {
@@ -36721,8 +36721,8 @@ ${filesChanged} files, +${linesAdded}/-${linesRemoved}
 Output ONLY the sentence, nothing else.`, 100);
     return text.trim();
 }
-async function generateDiagram(llm, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved, findings = []) {
-    const relevantFiles = fileSummaries.filter((f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 5));
+async function generateDiagram(llm, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved, findings = [], minFileLines = 20) {
+    const relevantFiles = fileSummaries.filter((f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded >= minFileLines));
     if (relevantFiles.length === 0) {
         return null;
     }
@@ -37142,6 +37142,7 @@ async function run() {
         const languageFilter = core.getInput("languages") || "auto";
         const diagramEnabled = core.getInput("diagram") !== "false";
         const minLines = parseInt(core.getInput("min_lines") || "50", 10);
+        const minFileLines = parseInt(core.getInput("min_file_lines") || "20", 10);
         const llmConfig = (0, llm_1.resolveLLMConfig)(anthropicKey, openaiKey, openrouterKey, modelOverride);
         const baseRef = await resolveBaseRef(token);
         core.info(`Base ref: ${baseRef}`);
@@ -37193,7 +37194,7 @@ async function run() {
             try {
                 [summaryLine, diagram] = await Promise.all([
                     (0, diagram_1.generateSummaryLine)(llm, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved),
-                    (0, diagram_1.generateDiagram)(llm, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, findings),
+                    (0, diagram_1.generateDiagram)(llm, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, findings, minFileLines),
                 ]);
                 core.info(`Summary: ${summaryLine}`);
                 if (diagram) {
@@ -37217,7 +37218,7 @@ async function run() {
             ? `https://github.com/${repo.owner}/${repo.repo}/pull/${prNumber}/files`
             : "";
         core.info("Composing comment...");
-        const body = (0, comment_1.composeComment)(classification, extraction.symbols, extraction.fileSummaries, extraction.newFiles, extraction.deletedFiles, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, diagram, prFilesUrl, summaryLine, findings);
+        const body = (0, comment_1.composeComment)(classification, extraction.symbols, extraction.fileSummaries, extraction.newFiles, extraction.deletedFiles, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, diagram, prFilesUrl, summaryLine, findings, minFileLines);
         core.info("Posting comment...");
         await (0, comment_1.postComment)(token, body);
         core.info("Done.");

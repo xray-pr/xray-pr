@@ -42,6 +42,7 @@ async function run(): Promise<void> {
     const languageFilter = core.getInput("languages") || "auto";
     const diagramEnabled = core.getInput("diagram") !== "false";
     const minLines = parseInt(core.getInput("min_lines") || "50", 10);
+    const minFileLines = parseInt(core.getInput("min_file_lines") || "20", 10);
 
     const llmConfig = resolveLLMConfig(anthropicKey, openaiKey, openrouterKey, modelOverride);
 
@@ -127,7 +128,8 @@ async function run(): Promise<void> {
             extraction.changedFiles.length,
             extraction.linesAdded,
             extraction.linesRemoved,
-            findings
+            findings,
+            minFileLines
           ),
         ]);
         core.info(`Summary: ${summaryLine}`);
@@ -165,7 +167,8 @@ async function run(): Promise<void> {
       diagram,
       prFilesUrl,
       summaryLine,
-      findings
+      findings,
+      minFileLines
     );
 
     core.info("Posting comment...");

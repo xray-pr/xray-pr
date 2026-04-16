@@ -37,6 +37,10 @@ inputs:
     description: "Skip PRs with fewer added lines than this"
     required: false
     default: "50"
+  min_file_lines:
+    description: "Hide files from diagram/table with fewer added lines than this (files with symbol matches always appear)"
+    required: false
+    default: "20"
 
 runs:
   using: "node20"
