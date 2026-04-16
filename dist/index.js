@@ -36522,7 +36522,7 @@ function composeComment(classification, symbols, fileSummaries, newFiles, delete
         sections.push("");
     }
     const nonTestFiles = fileSummaries.filter((f) => !f.isTest);
-    const relevantFiles = nonTestFiles.filter((f) => f.symbols.length > 0 || f.linesAdded > 20);
+    const relevantFiles = nonTestFiles.filter((f) => f.symbols.length > 0 || f.linesAdded > 5);
     if (relevantFiles.length > 0) {
         const rows = [];
         for (const f of relevantFiles) {
@@ -36722,7 +36722,7 @@ Output ONLY the sentence, nothing else.`, 100);
     return text.trim();
 }
 async function generateDiagram(llm, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved, findings = []) {
-    const relevantFiles = fileSummaries.filter((f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 20));
+    const relevantFiles = fileSummaries.filter((f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 5));
     if (relevantFiles.length === 0) {
         return null;
     }

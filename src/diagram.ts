@@ -50,7 +50,7 @@ export async function generateDiagram(
   findings: Finding[] = []
 ): Promise<string | null> {
   const relevantFiles = fileSummaries.filter(
-    (f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 20)
+    (f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 5)
   );
 
   if (relevantFiles.length === 0) {

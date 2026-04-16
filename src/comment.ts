@@ -239,7 +239,7 @@ export function composeComment(
 
   const nonTestFiles = fileSummaries.filter((f) => !f.isTest);
   const relevantFiles = nonTestFiles.filter(
-    (f) => f.symbols.length > 0 || f.linesAdded > 20
+    (f) => f.symbols.length > 0 || f.linesAdded > 5
   );
 
   if (relevantFiles.length > 0) {
