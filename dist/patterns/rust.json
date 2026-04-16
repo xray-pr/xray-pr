@@ -3,11 +3,16 @@
   "doc_extensions": [],
   "test_file_pattern": "(^|/)tests/|_test\\.rs$",
   "symbols": {
-    "types": "^[+-].*(pub\\s+)?(struct|enum|trait|type)\\s+(\\w+)",
-    "functions": "^[+-].*(pub\\s+)?(async\\s+)?fn\\s+(\\w+)",
+    "types": "^[+-].*(?:pub\\s+)?(?:struct|enum|trait|type)\\s+(\\w+)",
+    "functions": "^[+-].*(?:pub\\s+)?(?:async\\s+)?fn\\s+(\\w+)",
     "errors": "^[+-].*(enum\\s+\\w*Error\\w*|impl\\s+.*Error|thiserror|anyhow)",
     "tests": "^[+-].*(#\\[test\\]|#\\[tokio::test\\]|mod\\s+tests)",
-    "config": "^[+-].*(struct|enum)\\s+\\w*Config\\w*",
-    "concurrency": "^[+-].*(Arc\\s*<|Mutex\\s*<|RwLock\\s*<|tokio::spawn|std::thread::spawn|channel\\()"
+    "config": "^[+-].*(?:struct|enum)\\s+(\\w*Config\\w*)",
+    "concurrency": "^[+-].*(Arc\\s*[<:]|Mutex\\s*[<:]|RwLock\\s*[<:]|tokio::spawn|std::thread::spawn|channel\\()",
+    "unsafe_ops": "^[+-].*(unsafe\\s*\\{|unsafe\\s+fn\\s+\\w+|unsafe\\s+impl\\b|unsafe\\s+trait\\b|\\btransmute\\b|\\bfrom_raw_parts\\b|\\bptr::\\w+|extern\\s+\"C\"|#\\[no_mangle\\])",
+    "external_calls": "^[+-].*(reqwest::\\w+|hyper::(?:Client|Request|Body)|tonic::\\w+|TcpStream::connect|UdpSocket::bind|sqlx::\\w+|redis::\\w+|awc::\\w+)",
+    "http_handlers": "^[+-].*(?:async\\s+fn\\s+(\\w+).*->.*(?:impl\\s+IntoResponse|Response|Json<|HttpResponse)|#\\[((?:get|post|put|delete|patch))\\()",
+    "context_lifecycle": "^[+-].*(CancellationToken|tokio::select!|tokio::(?:time::)?timeout|JoinHandle|\\.abort\\(\\)|futures::select!)",
+    "resource_mgmt": "^[+-].*(impl\\s+Drop\\s+for\\s+\\w+|File::(?:open|create)|\\.(?:lock|read|write)\\(\\)|\\bdrop\\()"
   }
 }

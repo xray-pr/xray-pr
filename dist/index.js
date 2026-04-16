@@ -35681,9 +35681,11 @@ exports.runAnalyzers = runAnalyzers;
 const core = __importStar(__nccwpck_require__(7484));
 const go_1 = __nccwpck_require__(4145);
 const python_1 = __nccwpck_require__(6517);
+const rust_1 = __nccwpck_require__(6849);
 const ANALYZERS = {
     go: go_1.analyzeGo,
     python: python_1.analyzePython,
+    rust: rust_1.analyzeRust,
 };
 async function runAnalyzers(languages, changedFiles) {
     const allFindings = [];
@@ -35987,6 +35989,185 @@ function parseBanditOutput(output) {
 
 /***/ }),
 
+/***/ 6849:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.analyzeRust = analyzeRust;
+const exec = __importStar(__nccwpck_require__(5236));
+const core = __importStar(__nccwpck_require__(7484));
+const fs = __importStar(__nccwpck_require__(9896));
+const path = __importStar(__nccwpck_require__(6928));
+// Clippy lint set. Deny-by-default `correctness` is kept as deny so it
+// surfaces as error-level (mapped to HIGH). The rest are warn-level and
+// are either mapped to HIGH via HIGH_WARN_RULES (panics, lock/memory
+// hazards) or default to MEDIUM.
+const CLIPPY_FLAGS = [
+    "-D", "clippy::correctness",
+    "-W", "clippy::suspicious",
+    "-W", "clippy::perf",
+    "-W", "clippy::complexity",
+    "-W", "clippy::unwrap_used",
+    "-W", "clippy::expect_used",
+    "-W", "clippy::panic",
+    "-W", "clippy::mem_forget",
+    "-W", "clippy::await_holding_lock",
+    "-W", "clippy::await_holding_refcell_ref",
+    "-W", "clippy::arithmetic_side_effects",
+    "-W", "clippy::indexing_slicing",
+    "-A", "clippy::too_many_arguments",
+];
+const HIGH_WARN_RULES = new Set([
+    "clippy::unwrap_used",
+    "clippy::expect_used",
+    "clippy::panic",
+    "clippy::mem_forget",
+    "clippy::await_holding_lock",
+    "clippy::await_holding_refcell_ref",
+]);
+const MAX_FINDINGS_PER_RULE = 10;
+async function tryExec(cmd, args) {
+    let output = "";
+    try {
+        await exec.exec(cmd, args, {
+            listeners: { stdout: (data) => (output += data.toString()) },
+            silent: true,
+            ignoreReturnCode: true,
+        });
+        return { output, ok: true };
+    }
+    catch {
+        return { output: "", ok: false };
+    }
+}
+async function analyzeRust(changedFiles) {
+    const rsFiles = changedFiles.filter((f) => f.endsWith(".rs") && !/(^|\/)tests\//.test(f) && !f.endsWith("_test.rs"));
+    if (rsFiles.length === 0)
+        return [];
+    // Skip entirely when there is no Cargo project at the repo root.
+    // Avoids a 30-60s rustup install on monorepos that happen to contain
+    // stray .rs files (docs, examples) without a Cargo.toml.
+    if (!fs.existsSync(path.join(process.cwd(), "Cargo.toml"))) {
+        core.info("No Cargo.toml at repo root — skipping Rust analysis.");
+        return [];
+    }
+    core.info("Ensuring clippy component is installed...");
+    const rustupResult = await tryExec("rustup", ["component", "add", "clippy"]);
+    if (!rustupResult.ok) {
+        core.warning("rustup / clippy component not available — skipping Rust analysis.");
+        return [];
+    }
+    const clippyArgs = [
+        "clippy",
+        "--workspace",
+        "--no-deps",
+        "--all-targets",
+        "--message-format=json",
+        "--",
+        ...CLIPPY_FLAGS,
+    ];
+    core.info(`Running cargo clippy with ${CLIPPY_FLAGS.length / 2} curated lint flags...`);
+    const result = await tryExec("cargo", clippyArgs);
+    if (!result.output)
+        return [];
+    return parseClippyOutput(result.output);
+}
+function parseClippyOutput(output) {
+    const findings = [];
+    const seen = new Set();
+    const perRuleCount = {};
+    for (const line of output.split("\n")) {
+        if (!line.trim())
+            continue;
+        let data;
+        try {
+            data = JSON.parse(line);
+        }
+        catch {
+            continue;
+        }
+        if (data.reason !== "compiler-message")
+            continue;
+        const msg = data.message;
+        if (!msg)
+            continue;
+        const ruleCode = msg.code?.code;
+        if (!ruleCode || !ruleCode.startsWith("clippy::"))
+            continue;
+        const primary = msg.spans.find((s) => s.is_primary) ?? msg.spans[0];
+        if (!primary || !primary.file_name)
+            continue;
+        const relPath = path.isAbsolute(primary.file_name)
+            ? path.relative(process.cwd(), primary.file_name)
+            : primary.file_name;
+        const dedupeKey = `${relPath}:${primary.line_start}:${ruleCode}`;
+        if (seen.has(dedupeKey))
+            continue;
+        seen.add(dedupeKey);
+        const count = (perRuleCount[ruleCode] || 0) + 1;
+        if (count > MAX_FINDINGS_PER_RULE)
+            continue;
+        perRuleCount[ruleCode] = count;
+        findings.push({
+            file: relPath,
+            line: primary.line_start,
+            severity: mapSeverity(ruleCode, msg.level),
+            message: msg.message,
+            rule: ruleCode,
+        });
+    }
+    return findings;
+}
+function mapSeverity(rule, level) {
+    // Deny-level (clippy::correctness group) arrives as level=error.
+    if (level === "error")
+        return "HIGH";
+    if (HIGH_WARN_RULES.has(rule))
+        return "HIGH";
+    // Everything else in the curated set: perf, complexity, suspicious,
+    // arithmetic_side_effects, indexing_slicing — surfaces as a signal but
+    // not a top-priority finding.
+    return "MEDIUM";
+}
+
+
+/***/ }),
+
 /***/ 3813:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -36178,16 +36359,33 @@ const INFO_KINDS = new Set([
 function isTestSymbol(s) {
     return /^(Test|Benchmark|test_|describe|it\(|setUp|tearDown)/i.test(s.name);
 }
+// Generic-name detector shared across Go and Rust. A "generic" name is a
+// language or library primitive (e.g. `go func`, `tokio::spawn`, `File::open`)
+// that should count toward the kind's signal but should not be listed as a
+// named identifier in risk tooltips or the "Key changes" column. Keep the
+// branches ordered by kind so new languages plug in without touching Go rules.
 function isGenericSymbol(s) {
     if (s.kind === "concurrency") {
         return GENERIC_SYMBOL_NAMES.has(s.name) ||
-            /^(go\s|sync\.|make\(chan|select\s|<-\s*chan)/.test(s.name);
+            // Go
+            /^(go\s|sync\.|make\(chan|select\s|<-\s*chan)/.test(s.name) ||
+            // Rust
+            /^(Arc[<:]|Mutex[<:]|RwLock[<:]|tokio::spawn|std::thread::spawn|channel\()/.test(s.name);
     }
     if (s.kind === "context_lifecycle") {
-        return /^(context\.|ctx\.)/.test(s.name);
+        return /^(context\.|ctx\.)/.test(s.name) ||
+            // Rust
+            /^(CancellationToken|tokio::(select!|(time::)?timeout)|JoinHandle|\.abort\(\)|futures::select!)/.test(s.name);
     }
     if (s.kind === "resource_mgmt") {
-        return /^(defer\s|os\.|sql\.)/.test(s.name);
+        return /^(defer\s|os\.|sql\.)/.test(s.name) ||
+            // Rust
+            /^(impl Drop|File::(open|create)|\.(lock|read|write)\(\)|drop\()/.test(s.name);
+    }
+    if (s.kind === "errors") {
+        // Library primitives that aren't named identifiers.
+        // Go: `errors.New(`, `fmt.Errorf(`. Rust: `thiserror`, `anyhow`.
+        return /^(thiserror|anyhow|errors\.New|fmt\.Errorf)/.test(s.name);
     }
     return false;
 }
@@ -36311,7 +36509,7 @@ function formatFilesSummary(newFiles, deletedFiles, totalChanged) {
         parts.push(`**${deletedFiles.length}** deleted`);
     return parts.join(" · ");
 }
-function composeComment(classification, symbols, fileSummaries, newFiles, deletedFiles, totalFiles, linesAdded, linesRemoved, diagram, prFilesUrl, summaryLine, findings) {
+function composeComment(classification, symbols, fileSummaries, newFiles, deletedFiles, totalFiles, linesAdded, linesRemoved, diagram, prFilesUrl, summaryLine, findings, minFileLines = 20) {
     const sections = [COMMENT_HEADER];
     if (summaryLine) {
         sections.push(`**${summaryLine}**`);
@@ -36324,7 +36522,7 @@ function composeComment(classification, symbols, fileSummaries, newFiles, delete
         sections.push("");
     }
     const nonTestFiles = fileSummaries.filter((f) => !f.isTest);
-    const relevantFiles = nonTestFiles.filter((f) => f.symbols.length > 0 || f.linesAdded > 20);
+    const relevantFiles = nonTestFiles.filter((f) => f.symbols.length > 0 || f.linesAdded >= minFileLines);
     if (relevantFiles.length > 0) {
         const rows = [];
         for (const f of relevantFiles) {
@@ -36523,8 +36721,8 @@ ${filesChanged} files, +${linesAdded}/-${linesRemoved}
 Output ONLY the sentence, nothing else.`, 100);
     return text.trim();
 }
-async function generateDiagram(llm, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved, findings = []) {
-    const relevantFiles = fileSummaries.filter((f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 20));
+async function generateDiagram(llm, fileSummaries, allSymbols, filesChanged, linesAdded, linesRemoved, findings = [], minFileLines = 20) {
+    const relevantFiles = fileSummaries.filter((f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded >= minFileLines));
     if (relevantFiles.length === 0) {
         return null;
     }
@@ -36944,6 +37142,7 @@ async function run() {
         const languageFilter = core.getInput("languages") || "auto";
         const diagramEnabled = core.getInput("diagram") !== "false";
         const minLines = parseInt(core.getInput("min_lines") || "50", 10);
+        const minFileLines = parseInt(core.getInput("min_file_lines") || "20", 10);
         const llmConfig = (0, llm_1.resolveLLMConfig)(anthropicKey, openaiKey, openrouterKey, modelOverride);
         const baseRef = await resolveBaseRef(token);
         core.info(`Base ref: ${baseRef}`);
@@ -36995,7 +37194,7 @@ async function run() {
             try {
                 [summaryLine, diagram] = await Promise.all([
                     (0, diagram_1.generateSummaryLine)(llm, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved),
-                    (0, diagram_1.generateDiagram)(llm, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, findings),
+                    (0, diagram_1.generateDiagram)(llm, extraction.fileSummaries, extraction.symbols, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, findings, minFileLines),
                 ]);
                 core.info(`Summary: ${summaryLine}`);
                 if (diagram) {
@@ -37019,7 +37218,7 @@ async function run() {
             ? `https://github.com/${repo.owner}/${repo.repo}/pull/${prNumber}/files`
             : "";
         core.info("Composing comment...");
-        const body = (0, comment_1.composeComment)(classification, extraction.symbols, extraction.fileSummaries, extraction.newFiles, extraction.deletedFiles, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, diagram, prFilesUrl, summaryLine, findings);
+        const body = (0, comment_1.composeComment)(classification, extraction.symbols, extraction.fileSummaries, extraction.newFiles, extraction.deletedFiles, extraction.changedFiles.length, extraction.linesAdded, extraction.linesRemoved, diagram, prFilesUrl, summaryLine, findings, minFileLines);
         core.info("Posting comment...");
         await (0, comment_1.postComment)(token, body);
         core.info("Done.");

@@ -47,10 +47,11 @@ export async function generateDiagram(
   filesChanged: number,
   linesAdded: number,
   linesRemoved: number,
-  findings: Finding[] = []
+  findings: Finding[] = [],
+  minFileLines: number = 20
 ): Promise<string | null> {
   const relevantFiles = fileSummaries.filter(
-    (f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded > 20)
+    (f) => !f.isTest && (f.symbols.length > 0 || f.linesAdded >= minFileLines)
   );
 
   if (relevantFiles.length === 0) {
