@@ -152,6 +152,10 @@ CRITICAL SYNTAX RULES:
 - Dotted arrows from risk to file: r1 -.-> A
 - EVERY arrow MUST have a label describing the relationship: -->|"calls"| or -->|"implements"| or -->|"configures"| etc.
 - Use graph TD with generous spacing — prefer readability over compactness
+- STYLING: Apply classes INLINE using ::: syntax on node definition: A["label"]:::red
+  NEVER use "A class red" or "class A red" as separate statements — this breaks Mermaid.
+  Example: A["memory.go +790/-533"]:::red
+- classDef statements MUST come BEFORE all node definitions
 
 PR summary: ${filesChanged} files changed, +${linesAdded}/-${linesRemoved}
 
