@@ -155,7 +155,9 @@ CRITICAL SYNTAX RULES:
 - STYLING: Apply classes INLINE using ::: syntax on node definition: A["label"]:::red
   NEVER use "A class red" or "class A red" as separate statements — this breaks Mermaid.
   Example: A["memory.go +790/-533"]:::red
-- classDef statements MUST come BEFORE all node definitions
+- "graph TD" MUST be the VERY FIRST LINE of the output
+- classDef statements MUST come AFTER "graph TD" but BEFORE node definitions
+- Node labels must be single-line — NO literal newlines inside quotes. Use commas to separate items.
 
 PR summary: ${filesChanged} files changed, +${linesAdded}/-${linesRemoved}
 
